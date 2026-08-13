@@ -24,7 +24,7 @@ const storage =
 // ========================================
 
 const allowedExtensions =
-  /jpeg|jpg|png|webp|gif/;
+  /jpeg|jpg|png|webp|gif|heic|heif/;
 
 const fileFilter = (
   req,
@@ -37,18 +37,28 @@ const fileFilter = (
         .toLowerCase()
     );
 
+  // Some mobile browsers send
+  // HEIC/HEIF photos with a
+  // generic or missing mimetype
+  // (e.g. "application/octet-stream"),
+  // so we accept the file as long
+  // as EITHER the extension OR the
+  // mimetype looks like an image.
   const mimetype =
     allowedExtensions.test(
       file.mimetype
+    ) ||
+    file.mimetype.startsWith(
+      "image/"
     );
 
-  if (extname && mimetype) {
+  if (extname || mimetype) {
     return cb(null, true);
   }
 
   return cb(
     new Error(
-      "Only image files are allowed (jpg, jpeg, png, webp, gif)."
+      "Only image files are allowed (jpg, jpeg, png, webp, gif, heic, heif)."
     )
   );
 };
@@ -63,8 +73,10 @@ const upload = multer({
   fileFilter,
 
   limits: {
-    // 5MB per image
-    fileSize: 5 * 1024 * 1024,
+    // 10MB per image — mobile
+    // camera photos are often
+    // larger than 5MB.
+    fileSize: 10 * 1024 * 1024,
   },
 });
 
