@@ -1,87 +1,69 @@
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
 
 // ========================================
-// UPLOAD DIRECTORY
+// MEMORY STORAGE
+//
+// IMPORTANT:
+// We no longer write files to disk
+// (diskStorage). Vercel's filesystem
+// is read-only / temporary, so any
+// file saved there disappears.
+//
+// Instead we keep the file in memory
+// (req.file.buffer) and stream it
+// straight to Cloudinary from the
+// controller.
 // ========================================
 
-const uploadPath = path.join(
-  __dirname,
-  "../uploads"
-);
-
-if (!fs.existsSync(uploadPath)) {
-  fs.mkdirSync(uploadPath, {
-    recursive: true,
-  });
-}
+const storage =
+  multer.memoryStorage();
 
 // ========================================
-// STORAGE
+// FILE FILTER
+// Only allow image files.
 // ========================================
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadPath);
-  },
-
-  filename: (req, file, cb) => {
-    const uniqueName =
-      Date.now() +
-      "-" +
-      Math.round(Math.random() * 1e9);
-
-    const extension =
-      path.extname(file.originalname);
-
-    cb(
-      null,
-      uniqueName + extension
-    );
-  },
-});
-
-// ========================================
-// IMAGE FILTER
-// ========================================
+const allowedExtensions =
+  /jpeg|jpg|png|webp|gif/;
 
 const fileFilter = (
   req,
   file,
   cb
 ) => {
-  const allowedTypes = [
-    "image/jpeg",
-    "image/jpg",
-    "image/png",
-    "image/webp",
-    "image/gif",
-  ];
-
-  if (
-    allowedTypes.includes(file.mimetype)
-  ) {
-    cb(null, true);
-  } else {
-    cb(
-      new Error(
-        "Only JPG, JPEG, PNG, WEBP and GIF images are allowed"
-      ),
-      false
+  const extname =
+    allowedExtensions.test(
+      file.originalname
+        .toLowerCase()
     );
+
+  const mimetype =
+    allowedExtensions.test(
+      file.mimetype
+    );
+
+  if (extname && mimetype) {
+    return cb(null, true);
   }
+
+  return cb(
+    new Error(
+      "Only image files are allowed (jpg, jpeg, png, webp, gif)."
+    )
+  );
 };
 
 // ========================================
-// MULTER CONFIG
+// MULTER INSTANCE
 // ========================================
 
 const upload = multer({
   storage,
+
   fileFilter,
 
   limits: {
+    // 5MB per image
     fileSize: 5 * 1024 * 1024,
   },
 });

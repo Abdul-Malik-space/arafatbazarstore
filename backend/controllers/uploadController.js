@@ -1,17 +1,60 @@
-const fs = require("fs");
-const path = require("path");
+const streamifier = require("streamifier");
+
+const cloudinary = require("../config/cloudinary");
 
 // ========================================
-// HELPER: CREATE PUBLIC IMAGE URL
+// CLOUDINARY FOLDER
+//
+// Optional: set CLOUDINARY_FOLDER in
+// .env to organize uploads, e.g.
+// "arafat-bazar-store" or
+// "mobile-accessories-store".
 // ========================================
 
-const getFileUrl = (
-  req,
-  filename
+const CLOUDINARY_FOLDER =
+  process.env
+    .CLOUDINARY_FOLDER ||
+  "store-uploads";
+
+// ========================================
+// HELPER: STREAM BUFFER TO CLOUDINARY
+// ========================================
+
+const uploadBufferToCloudinary = (
+  buffer
 ) => {
-  return `${req.protocol}://${req.get(
-    "host"
-  )}/uploads/${filename}`;
+  return new Promise(
+    (resolve, reject) => {
+      const uploadStream =
+        cloudinary.uploader.upload_stream(
+          {
+            folder:
+              CLOUDINARY_FOLDER,
+
+            resource_type:
+              "image",
+          },
+
+          (error, result) => {
+            if (error) {
+              return reject(
+                error
+              );
+            }
+
+            return resolve(
+              result
+            );
+          }
+        );
+
+      streamifier
+        .createReadStream(
+          buffer
+        )
+        .pipe(uploadStream);
+    }
+  );
 };
 
 // ========================================
@@ -35,9 +78,17 @@ const uploadSingleImage = async (
         });
     }
 
+    const result =
+      await uploadBufferToCloudinary(
+        req.file.buffer
+      );
+
     const image = {
+      // public_id — needed later
+      // to delete this image from
+      // Cloudinary.
       filename:
-        req.file.filename,
+        result.public_id,
 
       originalName:
         req.file.originalname,
@@ -48,14 +99,17 @@ const uploadSingleImage = async (
       size:
         req.file.size,
 
+      // Full Cloudinary URL.
+      // Frontend's getImageUrl()
+      // already returns URLs as-is
+      // when they start with
+      // http(s):// — no frontend
+      // changes needed.
       path:
-        `/uploads/${req.file.filename}`,
+        result.secure_url,
 
       url:
-        getFileUrl(
-          req,
-          req.file.filename
-        ),
+        result.secure_url,
     };
 
     return res
@@ -114,29 +168,39 @@ const uploadMultipleImages =
           });
       }
 
+      const results =
+        await Promise.all(
+          req.files.map(
+            (file) =>
+              uploadBufferToCloudinary(
+                file.buffer
+              )
+          )
+        );
+
       const images =
-        req.files.map(
-          (file) => ({
+        results.map(
+          (result, index) => ({
             filename:
-              file.filename,
+              result.public_id,
 
             originalName:
-              file.originalname,
+              req.files[index]
+                .originalname,
 
             mimetype:
-              file.mimetype,
+              req.files[index]
+                .mimetype,
 
             size:
-              file.size,
+              req.files[index]
+                .size,
 
             path:
-              `/uploads/${file.filename}`,
+              result.secure_url,
 
             url:
-              getFileUrl(
-                req,
-                file.filename
-              ),
+              result.secure_url,
           })
         );
 
@@ -177,6 +241,18 @@ const uploadMultipleImages =
 // DELETE UPLOADED IMAGE
 //
 // DELETE /api/uploads/:filename
+//
+// IMPORTANT:
+// "filename" here must be the
+// Cloudinary public_id that was
+// returned when the image was
+// uploaded (the "filename" field
+// in the upload response). Because
+// public_id can contain a "/"
+// (folder/name), the frontend must
+// send it URL-encoded:
+//
+// encodeURIComponent(image.filename)
 // ========================================
 
 const deleteUploadedImage =
@@ -185,47 +261,49 @@ const deleteUploadedImage =
     res
   ) => {
     try {
-      const filename =
-        path.basename(
-          req.params.filename
+      const publicId =
+        decodeURIComponent(
+          req.params.filename ||
+            ""
         );
 
-      if (!filename) {
+      if (!publicId) {
         return res
           .status(400)
           .json({
             success: false,
 
             message:
-              "Image filename is required",
+              "Image identifier is required",
           });
       }
 
-      const filePath =
-        path.join(
-          __dirname,
-          "../uploads",
-          filename
+      const result =
+        await cloudinary.uploader.destroy(
+          publicId,
+          {
+            resource_type:
+              "image",
+          }
         );
 
       if (
-        !fs.existsSync(
-          filePath
-        )
+        result.result !==
+          "ok" &&
+        result.result !==
+          "not found"
       ) {
         return res
-          .status(404)
+          .status(500)
           .json({
             success: false,
 
             message:
-              "Image not found",
+              "Failed to delete image",
+
+            result,
           });
       }
-
-      fs.unlinkSync(
-        filePath
-      );
 
       return res
         .status(200)
