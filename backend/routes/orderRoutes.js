@@ -10,68 +10,68 @@ const {
   cancelOrder,
 } = require("../controllers/orderController");
 
+const {
+  protectAdmin,
+  requireAnyAdmin,
+} = require("../middleware/adminAuth");
+
 const router = express.Router();
 
 // ========================================
-// CREATE ORDER
-// POST /api/orders
+// PUBLIC ORDER ROUTES
 // ========================================
 
+// Customer places an order
+// POST /api/orders
 router.post("/", createOrder);
 
-// ========================================
-// GET ALL ORDERS
-// GET /api/orders
-// ========================================
-
-router.get("/", getOrders);
-
-// ========================================
-// TRACK ORDER BY ORDER NUMBER
-// IMPORTANT:
+// Customer tracks an order
+// GET /api/orders/track/:orderNumber
 // Keep this before /:id
-// ========================================
-
 router.get(
   "/track/:orderNumber",
   getOrderByNumber
 );
 
 // ========================================
-// UPDATE ORDER STATUS
-// PATCH /api/orders/:id/status
+// ADMIN-ONLY ROUTES
+// Everything below this line requires
+// an authenticated admin.
 // ========================================
 
+router.use(
+  protectAdmin,
+  requireAnyAdmin
+);
+
+// Admin order list
+// GET /api/orders
+router.get("/", getOrders);
+
+// Update order status
+// PATCH /api/orders/:id/status
 router.patch(
   "/:id/status",
   updateOrderStatus
 );
 
-// ========================================
-// UPDATE PAYMENT STATUS
+// Update payment status
 // PATCH /api/orders/:id/payment
-// ========================================
-
 router.patch(
   "/:id/payment",
   updatePaymentStatus
 );
 
-// ========================================
-// CANCEL ORDER + RESTORE STOCK
+// Cancel order and restore stock
 // PATCH /api/orders/:id/cancel
-// ========================================
-
 router.patch(
   "/:id/cancel",
   cancelOrder
 );
 
-// ========================================
-// GET SINGLE ORDER
-// Keep /:id route at the bottom
-// ========================================
-
+// Admin single order
+// GET /api/orders/:id
+// Keep this at the bottom.
 router.get(
   "/:id",
   getOrderById

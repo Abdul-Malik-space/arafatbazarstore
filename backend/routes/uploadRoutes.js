@@ -1,17 +1,23 @@
 const express = require("express");
 
-const upload = require("../middleware/uploadMiddleware");
+const upload = require(
+  "../middleware/uploadMiddleware"
+);
 
 const {
   uploadSingleImage,
   uploadMultipleImages,
   deleteUploadedImage,
-} = require("../controllers/uploadController");
+} = require(
+  "../controllers/uploadController"
+);
 
 const {
   protectAdmin,
   requireAnyAdmin,
-} = require("../middleware/adminAuth");
+} = require(
+  "../middleware/adminAuth"
+);
 
 const router = express.Router();
 
@@ -25,10 +31,12 @@ router.use(
 );
 
 // ========================================
-// SINGLE IMAGE UPLOAD
+// SINGLE IMAGE
 //
 // POST /api/uploads/single
-// Field name: image
+//
+// form-data:
+// image = file
 // ========================================
 
 router.post(
@@ -38,10 +46,13 @@ router.post(
 );
 
 // ========================================
-// MULTIPLE IMAGE UPLOAD
+// MULTIPLE IMAGES
 //
 // POST /api/uploads/multiple
-// Field name: images
+//
+// form-data:
+// images = files
+//
 // Maximum: 10
 // ========================================
 

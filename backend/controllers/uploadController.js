@@ -1,60 +1,43 @@
-const streamifier = require("streamifier");
+const { PassThrough } = require("stream");
 
 const cloudinary = require("../config/cloudinary");
 
 // ========================================
 // CLOUDINARY FOLDER
-//
-// Optional: set CLOUDINARY_FOLDER in
-// .env to organize uploads, e.g.
-// "arafat-bazar-store" or
-// "mobile-accessories-store".
 // ========================================
 
 const CLOUDINARY_FOLDER =
-  process.env
-    .CLOUDINARY_FOLDER ||
-  "store-uploads";
+  process.env.CLOUDINARY_FOLDER || "store-uploads";
 
 // ========================================
-// HELPER: STREAM BUFFER TO CLOUDINARY
+// HELPER: BUFFER -> CLOUDINARY
 // ========================================
 
-const uploadBufferToCloudinary = (
-  buffer
-) => {
-  return new Promise(
-    (resolve, reject) => {
-      const uploadStream =
-        cloudinary.uploader.upload_stream(
-          {
-            folder:
-              CLOUDINARY_FOLDER,
-
-            resource_type:
-              "image",
-          },
-
-          (error, result) => {
-            if (error) {
-              return reject(
-                error
-              );
-            }
-
-            return resolve(
-              result
-            );
+const uploadBufferToCloudinary = (buffer) => {
+  return new Promise((resolve, reject) => {
+    const uploadStream =
+      cloudinary.uploader.upload_stream(
+        {
+          folder: CLOUDINARY_FOLDER,
+          resource_type: "image",
+        },
+        (error, result) => {
+          if (error) {
+            return reject(error);
           }
-        );
 
-      streamifier
-        .createReadStream(
-          buffer
-        )
-        .pipe(uploadStream);
-    }
-  );
+          return resolve(result);
+        }
+      );
+
+    // Built-in Node.js stream.
+    // No "streamifier" package required.
+    const bufferStream = new PassThrough();
+
+    bufferStream.end(buffer);
+
+    bufferStream.pipe(uploadStream);
+  });
 };
 
 // ========================================
@@ -63,19 +46,13 @@ const uploadBufferToCloudinary = (
 // POST /api/uploads/single
 // ========================================
 
-const uploadSingleImage = async (
-  req,
-  res
-) => {
+const uploadSingleImage = async (req, res) => {
   try {
     if (!req.file) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message:
-            "Please select an image",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Please select an image",
+      });
     }
 
     const result =
@@ -84,11 +61,7 @@ const uploadSingleImage = async (
       );
 
     const image = {
-      // public_id — needed later
-      // to delete this image from
-      // Cloudinary.
-      filename:
-        result.public_id,
+      filename: result.public_id,
 
       originalName:
         req.file.originalname,
@@ -99,12 +72,6 @@ const uploadSingleImage = async (
       size:
         req.file.size,
 
-      // Full Cloudinary URL.
-      // Frontend's getImageUrl()
-      // already returns URLs as-is
-      // when they start with
-      // http(s):// — no frontend
-      // changes needed.
       path:
         result.secure_url,
 
@@ -112,33 +79,29 @@ const uploadSingleImage = async (
         result.secure_url,
     };
 
-    return res
-      .status(201)
-      .json({
-        success: true,
+    return res.status(201).json({
+      success: true,
 
-        message:
-          "Image uploaded successfully",
+      message:
+        "Image uploaded successfully",
 
-        image,
-      });
+      image,
+    });
   } catch (error) {
     console.error(
       "Single Image Upload Error:",
       error
     );
 
-    return res
-      .status(500)
-      .json({
-        success: false,
+    return res.status(500).json({
+      success: false,
 
-        message:
-          "Failed to upload image",
+      message:
+        "Failed to upload image",
 
-        error:
-          error.message,
-      });
+      error:
+        error.message,
+    });
   }
 };
 
@@ -149,32 +112,26 @@ const uploadSingleImage = async (
 // ========================================
 
 const uploadMultipleImages =
-  async (
-    req,
-    res
-  ) => {
+  async (req, res) => {
     try {
       if (
         !req.files ||
         req.files.length === 0
       ) {
-        return res
-          .status(400)
-          .json({
-            success: false,
+        return res.status(400).json({
+          success: false,
 
-            message:
-              "Please select at least one image",
-          });
+          message:
+            "Please select at least one image",
+        });
       }
 
       const results =
         await Promise.all(
-          req.files.map(
-            (file) =>
-              uploadBufferToCloudinary(
-                file.buffer
-              )
+          req.files.map((file) =>
+            uploadBufferToCloudinary(
+              file.buffer
+            )
           )
         );
 
@@ -204,132 +161,101 @@ const uploadMultipleImages =
           })
         );
 
-      return res
-        .status(201)
-        .json({
-          success: true,
+      return res.status(201).json({
+        success: true,
 
-          message:
-            `${images.length} image(s) uploaded successfully`,
+        message:
+          `${images.length} image(s) uploaded successfully`,
 
-          count:
-            images.length,
+        count:
+          images.length,
 
-          images,
-        });
+        images,
+      });
     } catch (error) {
       console.error(
         "Multiple Image Upload Error:",
         error
       );
 
-      return res
-        .status(500)
-        .json({
-          success: false,
+      return res.status(500).json({
+        success: false,
 
-          message:
-            "Failed to upload images",
+        message:
+          "Failed to upload images",
 
-          error:
-            error.message,
-        });
+        error:
+          error.message,
+      });
     }
   };
 
 // ========================================
-// DELETE UPLOADED IMAGE
+// DELETE IMAGE
 //
 // DELETE /api/uploads/:filename
-//
-// IMPORTANT:
-// "filename" here must be the
-// Cloudinary public_id that was
-// returned when the image was
-// uploaded (the "filename" field
-// in the upload response). Because
-// public_id can contain a "/"
-// (folder/name), the frontend must
-// send it URL-encoded:
-//
-// encodeURIComponent(image.filename)
 // ========================================
 
 const deleteUploadedImage =
-  async (
-    req,
-    res
-  ) => {
+  async (req, res) => {
     try {
       const publicId =
         decodeURIComponent(
-          req.params.filename ||
-            ""
+          req.params.filename || ""
         );
 
       if (!publicId) {
-        return res
-          .status(400)
-          .json({
-            success: false,
+        return res.status(400).json({
+          success: false,
 
-            message:
-              "Image identifier is required",
-          });
+          message:
+            "Image identifier is required",
+        });
       }
 
       const result =
         await cloudinary.uploader.destroy(
           publicId,
           {
-            resource_type:
-              "image",
+            resource_type: "image",
           }
         );
 
       if (
-        result.result !==
-          "ok" &&
-        result.result !==
-          "not found"
+        result.result !== "ok" &&
+        result.result !== "not found"
       ) {
-        return res
-          .status(500)
-          .json({
-            success: false,
-
-            message:
-              "Failed to delete image",
-
-            result,
-          });
-      }
-
-      return res
-        .status(200)
-        .json({
-          success: true,
+        return res.status(500).json({
+          success: false,
 
           message:
-            "Image deleted successfully",
+            "Failed to delete image",
+
+          result,
         });
+      }
+
+      return res.status(200).json({
+        success: true,
+
+        message:
+          "Image deleted successfully",
+      });
     } catch (error) {
       console.error(
         "Delete Image Error:",
         error
       );
 
-      return res
-        .status(500)
-        .json({
-          success: false,
+      return res.status(500).json({
+        success: false,
 
-          message:
-            "Failed to delete image",
+        message:
+          "Failed to delete image",
 
-          error:
-            error.message,
-        });
+        error:
+          error.message,
+      });
     }
   };
 

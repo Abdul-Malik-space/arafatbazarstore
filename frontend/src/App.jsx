@@ -38,6 +38,8 @@ import AdminProductFormPage from "./pages/admin/AdminProductFormPage";
 
 import AdminCategoriesPage from "./pages/admin/AdminCategoriesPage";
 
+import AdminOrdersPage from "./pages/admin/AdminOrdersPage";
+
 import AdminWebsiteContentPage from "./pages/admin/AdminWebsiteContentPage";
 
 import AdminPagesPage from "./pages/admin/AdminPagesPage";
@@ -406,10 +408,7 @@ function App() {
             <Route
               path="orders"
               element={
-                <Navigate
-                  to="/admin/dashboard"
-                  replace
-                />
+                <AdminOrdersPage />
               }
             />
 
