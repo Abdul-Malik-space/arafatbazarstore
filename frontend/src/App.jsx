@@ -42,6 +42,10 @@ import AdminOrdersPage from "./pages/admin/AdminOrdersPage";
 
 import AdminOrderInvoicePage from "./pages/admin/AdminOrderInvoicePage";
 
+import AdminCustomersPage from "./pages/admin/AdminCustomersPage";
+
+import AdminCustomerDetailsPage from "./pages/admin/AdminCustomerDetailsPage";
+
 import AdminWebsiteContentPage from "./pages/admin/AdminWebsiteContentPage";
 
 import AdminPagesPage from "./pages/admin/AdminPagesPage";
@@ -419,6 +423,24 @@ function App() {
               path="orders/:id/invoice"
               element={
                 <AdminOrderInvoicePage />
+              }
+            />
+
+            {/* =============================
+                CUSTOMERS
+            ============================= */}
+
+            <Route
+              path="customers"
+              element={
+                <AdminCustomersPage />
+              }
+            />
+
+            <Route
+              path="customers/:phoneKey"
+              element={
+                <AdminCustomerDetailsPage />
               }
             />
 

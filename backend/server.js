@@ -43,6 +43,10 @@ const adminDashboardRoutes = require(
   "./routes/adminDashboardRoutes"
 );
 
+const customerRoutes = require(
+  "./routes/customerRoutes"
+);
+
 // ========================================
 // APP
 // ========================================
@@ -412,6 +416,11 @@ app.use(
 app.use(
   "/api/admin/dashboard",
   adminDashboardRoutes
+);
+
+app.use(
+  "/api/admin/customers",
+  customerRoutes
 );
 
 // ========================================

@@ -11,6 +11,7 @@ import {
   ShoppingBag,
   Store,
   Tags,
+  UsersRound,
   X,
 } from "lucide-react";
 
@@ -51,6 +52,12 @@ const mainMenuItems = [
     label: "Orders",
     path: "/admin/orders",
     icon: ShoppingBag,
+  },
+
+  {
+    label: "Customers",
+    path: "/admin/customers",
+    icon: UsersRound,
   },
 ];
 

@@ -2,6 +2,8 @@ const mongoose = require("mongoose");
 
 const Order = require("../models/Order");
 const Product = require("../models/Product");
+const CustomerProfile = require("../models/CustomerProfile");
+const { normalizePhoneKey } = require("../utils/customerIdentity");
 
 // ========================================
 // HELPERS
@@ -130,6 +132,36 @@ const createOrder = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Cart must contain at least one product",
+      });
+    }
+
+    // ========================================
+    // CUSTOMER BLOCK CHECK
+    //
+    // Admin can block abusive/fraudulent
+    // customers from the Customers CRM page.
+    // ========================================
+
+    const phoneKey = normalizePhoneKey(customer.phone);
+
+    if (!phoneKey) {
+      return res.status(400).json({
+        success: false,
+        message: "Please enter a valid phone number",
+      });
+    }
+
+    const customerProfile = await CustomerProfile.findOne({
+      phoneKey,
+    })
+      .select("status")
+      .lean();
+
+    if (customerProfile?.status === "blocked") {
+      return res.status(403).json({
+        success: false,
+        message:
+          "We are unable to process this order. Please contact store support.",
       });
     }
 

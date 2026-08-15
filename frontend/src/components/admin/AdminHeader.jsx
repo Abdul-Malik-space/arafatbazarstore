@@ -58,6 +58,12 @@ const PAGE_TITLES = {
       "View and manage customer orders.",
   },
 
+  "/admin/customers": {
+    title: "Customers",
+    description:
+      "Manage customer relationships and history.",
+  },
+
   "/admin/content": {
     title: "Website Content",
     description:
@@ -109,6 +115,18 @@ const getPageInformation = (
       title: "Order Details",
       description:
         "View and manage order information.",
+    };
+  }
+
+  if (
+    pathname.startsWith(
+      "/admin/customers/"
+    )
+  ) {
+    return {
+      title: "Customer Details",
+      description:
+        "Review customer history and CRM notes.",
     };
   }
 
