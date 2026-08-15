@@ -40,6 +40,8 @@ import AdminCategoriesPage from "./pages/admin/AdminCategoriesPage";
 
 import AdminOrdersPage from "./pages/admin/AdminOrdersPage";
 
+import AdminOrderInvoicePage from "./pages/admin/AdminOrderInvoicePage";
+
 import AdminWebsiteContentPage from "./pages/admin/AdminWebsiteContentPage";
 
 import AdminPagesPage from "./pages/admin/AdminPagesPage";
@@ -409,6 +411,14 @@ function App() {
               path="orders"
               element={
                 <AdminOrdersPage />
+              }
+            />
+
+
+            <Route
+              path="orders/:id/invoice"
+              element={
+                <AdminOrderInvoicePage />
               }
             />
 

@@ -22,6 +22,7 @@ import {
   PackageCheck,
   Phone,
   RefreshCw,
+  ReceiptText,
   Search,
   Truck,
   User,
@@ -2354,6 +2355,21 @@ const AdminOrdersPage = () => {
                                   />
                                 )}
 
+
+                                <IconActionButton
+                                  label="Open invoice"
+                                  icon={ReceiptText}
+                                  disabled={false}
+                                  variant="neutral"
+                                  onClick={() =>
+                                    window.open(
+                                      `/admin/orders/${order._id}/invoice`,
+                                      "_blank",
+                                      "noopener,noreferrer"
+                                    )
+                                  }
+                                />
+
                                 <IconActionButton
                                   label="View order details"
                                   icon={Eye}
@@ -2594,6 +2610,19 @@ const AdminOrdersPage = () => {
                               }
                             />
                           )}
+
+                          <IconActionButton
+                            label="Open invoice"
+                            icon={ReceiptText}
+                            variant="neutral"
+                            onClick={() =>
+                              window.open(
+                                `/admin/orders/${order._id}/invoice`,
+                                "_blank",
+                                "noopener,noreferrer"
+                              )
+                            }
+                          />
 
                           <IconActionButton
                             label="View order details"
