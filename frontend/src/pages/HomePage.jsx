@@ -87,6 +87,26 @@ const getDiscount = (product) => {
 };
 
 // ========================================
+// HERO POSITION HELPER
+// ========================================
+
+const clampPercent = (
+  value,
+  fallback = 50
+) => {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+
+  return Math.min(
+    100,
+    Math.max(0, number)
+  );
+};
+
+// ========================================
 // CATEGORY PRODUCT COUNT
 // ========================================
 // Backend may expose the count using any of
@@ -130,14 +150,10 @@ const getCategoryProductCount = (
 // ========================================
 // CATEGORY COUNT FALLBACK
 // ========================================
-// The current development frontend is configured to use
-// https://arafatbazar.pk/api. If that deployed category API
-// has not yet been updated with productCount, we obtain the
-// authoritative total from the existing products endpoint.
-//
-// We only make a fallback request for categories whose API
-// count is zero/missing. The products endpoint already returns
-// `total`, so limit=1 keeps the payload very small.
+// If a category count is zero/missing, obtain the
+// authoritative total from the products endpoint.
+// The products endpoint already returns `total`, so
+// limit=1 keeps the payload very small.
 
 const hydrateCategoryProductCounts = async (
   sourceCategories = []
@@ -751,10 +767,24 @@ const HomePage = () => {
 
           priceText: "",
 
+          textColor: "#ffffff",
+
           buttonText:
             "Shop now",
 
           buttonUrl: "/shop",
+
+          buttonBackgroundColor:
+            "#272727",
+
+          buttonTextColor:
+            "#ffffff",
+
+          buttonCustomPosition:
+            false,
+
+          buttonPositionX: 15,
+          buttonPositionY: 75,
 
           image: "",
         },
@@ -932,7 +962,11 @@ const HomePage = () => {
           )}
 
           {/* =================================
-              CONTENT
+              OPTIONAL HERO TEXT
+
+              All overlay text can be left blank
+              when the banner artwork already
+              contains its own copy.
           ================================= */}
 
           <div
@@ -952,9 +986,29 @@ const HomePage = () => {
             <div
               className="
                 max-w-[500px]
-                text-white
               "
+              style={{
+                color:
+                  currentHero?.textColor ||
+                  "#ffffff",
+              }}
             >
+              {currentHero?.smallTitle && (
+                <div
+                  className="
+                    mb-3
+                    text-[12px]
+                    font-bold
+                    uppercase
+                    tracking-[0.16em]
+
+                    sm:text-[13px]
+                  "
+                >
+                  {currentHero.smallTitle}
+                </div>
+              )}
+
               {currentHero?.title && (
                 <h1
                   className="
@@ -978,7 +1032,7 @@ const HomePage = () => {
                     max-w-[450px]
                     text-[16px]
                     leading-[1.5]
-                    text-white/95
+                    opacity-95
 
                     sm:text-[18px]
                   "
@@ -999,39 +1053,116 @@ const HomePage = () => {
                 </div>
               )}
 
-              {currentHero?.buttonText && (
-                <Link
-                  to={
-                    currentHero.buttonUrl ||
-                    "/shop"
-                  }
-                  className="
-                    mt-6
-                    inline-flex
-                    items-center
-                    gap-4
-                    rounded-full
-                    bg-[#272727]
-                    px-7
-                    py-[14px]
-                    text-[13px]
-                    font-bold
-                    uppercase
-                    text-white
-                    transition
+              {currentHero?.buttonText &&
+                !currentHero?.buttonCustomPosition && (
+                  <Link
+                    to={
+                      currentHero.buttonUrl ||
+                      "/shop"
+                    }
+                    className="
+                      mt-6
+                      inline-flex
+                      items-center
+                      gap-4
+                      rounded-full
+                      px-7
+                      py-[14px]
+                      text-[13px]
+                      font-bold
+                      uppercase
+                      shadow-sm
+                      transition
+                      hover:opacity-90
+                    "
+                    style={{
+                      backgroundColor:
+                        currentHero.buttonBackgroundColor ||
+                        "#272727",
 
-                    hover:bg-[var(--primary-color)]
-                  "
-                >
-                  {currentHero.buttonText}
+                      color:
+                        currentHero.buttonTextColor ||
+                        "#ffffff",
+                    }}
+                  >
+                    {currentHero.buttonText}
 
-                  <ShoppingBag
-                    size={16}
-                  />
-                </Link>
-              )}
+                    <ShoppingBag
+                      size={16}
+                      color={
+                        currentHero.buttonTextColor ||
+                        "#ffffff"
+                      }
+                    />
+                  </Link>
+                )}
             </div>
           </div>
+
+          {/* =================================
+              CUSTOM-POSITION HERO BUTTON
+
+              X / Y values come from the
+              Website Content dashboard.
+          ================================= */}
+
+          {currentHero?.buttonText &&
+            currentHero?.buttonCustomPosition && (
+              <Link
+                to={
+                  currentHero.buttonUrl ||
+                  "/shop"
+                }
+                className="
+                  absolute
+                  z-20
+                  inline-flex
+                  items-center
+                  gap-4
+                  rounded-full
+                  px-7
+                  py-[14px]
+                  text-[13px]
+                  font-bold
+                  uppercase
+                  shadow-sm
+                  transition
+                  hover:opacity-90
+                "
+                style={{
+                  left: `${clampPercent(
+                    currentHero.buttonPositionX,
+                    15
+                  )}%`,
+
+                  top: `${clampPercent(
+                    currentHero.buttonPositionY,
+                    75
+                  )}%`,
+
+                  transform:
+                    "translate(-50%, -50%)",
+
+                  backgroundColor:
+                    currentHero.buttonBackgroundColor ||
+                    "#272727",
+
+                  color:
+                    currentHero.buttonTextColor ||
+                    "#ffffff",
+                }}
+              >
+                {currentHero.buttonText}
+
+                <ShoppingBag
+                  size={16}
+                  color={
+                    currentHero.buttonTextColor ||
+                    "#ffffff"
+                  }
+                />
+              </Link>
+            )}
 
           {/* =================================
               SLIDER DOTS
