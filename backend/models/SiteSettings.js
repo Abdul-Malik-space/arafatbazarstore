@@ -81,9 +81,11 @@ const heroSlideSchema =
         trim: true,
       },
 
+      // Optional heading. Keep blank when the banner
+      // image already contains its own heading/text.
       title: {
         type: String,
-        required: true,
+        default: "",
         trim: true,
       },
 
@@ -106,9 +108,18 @@ const heroSlideSchema =
         trim: true,
       },
 
+      // Hero overlay text color
+      textColor: {
+        type: String,
+        default: "#ffffff",
+        trim: true,
+      },
+
+      // Optional CTA button. Keep blank when no button
+      // should be displayed over the banner.
       buttonText: {
         type: String,
-        default: "Shop Now",
+        default: "",
         trim: true,
       },
 
@@ -116,6 +127,39 @@ const heroSlideSchema =
         type: String,
         default: "/shop",
         trim: true,
+      },
+
+      buttonBackgroundColor: {
+        type: String,
+        default: "#272727",
+        trim: true,
+      },
+
+      buttonTextColor: {
+        type: String,
+        default: "#ffffff",
+        trim: true,
+      },
+
+      // When enabled, the button can be positioned freely
+      // using X/Y percentages over the banner image.
+      buttonCustomPosition: {
+        type: Boolean,
+        default: false,
+      },
+
+      buttonPositionX: {
+        type: Number,
+        default: 15,
+        min: 0,
+        max: 100,
+      },
+
+      buttonPositionY: {
+        type: Number,
+        default: 75,
+        min: 0,
+        max: 100,
       },
 
       image: {

@@ -4,7 +4,7 @@ const Category = require("../models/Category");
 const Product = require("../models/Product");
 
 // ========================================
-// HELPER: CREATE SLUG
+// HELPERS
 // ========================================
 
 const createSlug = (text = "") => {
@@ -17,25 +17,10 @@ const createSlug = (text = "") => {
     .replace(/-+/g, "-");
 };
 
-// ========================================
-// HELPER: VALID OBJECT ID
-// ========================================
+const isValidObjectId = (value) =>
+  mongoose.Types.ObjectId.isValid(value);
 
-const isValidObjectId = (value) => {
-  return mongoose.Types.ObjectId.isValid(
-    value
-  );
-};
-
-// ========================================
-// HELPER: NORMALIZE PARENT
-//
-// "", null, undefined => null
-// ========================================
-
-const normalizeParentCategory = (
-  value
-) => {
+const normalizeParentCategory = (value) => {
   if (
     value === undefined ||
     value === null ||
@@ -46,10 +31,6 @@ const normalizeParentCategory = (
 
   return value;
 };
-
-// ========================================
-// HELPER: NORMALIZE SORT ORDER
-// ========================================
 
 const normalizeSortOrder = (
   value,
@@ -63,8 +44,7 @@ const normalizeSortOrder = (
     return fallback;
   }
 
-  const numberValue =
-    Number(value);
+  const numberValue = Number(value);
 
   if (
     Number.isNaN(numberValue) ||
@@ -76,22 +56,440 @@ const normalizeSortOrder = (
   return numberValue;
 };
 
+const getCategoryIdString = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  if (value._id) {
+    return value._id.toString();
+  }
+
+  return value.toString();
+};
+
+const toPlainObject = (value) => {
+  if (!value) {
+    return value;
+  }
+
+  if (
+    typeof value.toObject === "function"
+  ) {
+    return value.toObject({
+      virtuals: true,
+    });
+  }
+
+  return {
+    ...value,
+  };
+};
+
 // ========================================
-// HELPER: VALIDATE PARENT CATEGORY
+// PRODUCT COUNT HELPERS
+// ========================================
 //
-// Rules:
+// Product documents are connected using:
 //
-// 1. Parent must exist
-// 2. Parent must be a MAIN category
-// 3. Category cannot be its own parent
+// Product.category -> Category._id
 //
-// This keeps hierarchy limited to:
+// MAIN CATEGORY COUNT:
+// Direct products
+// +
+// Products inside its subcategories
 //
-// Main Category
-//      ↓
-// Subcategory
+// Example:
 //
-// No third level.
+// Personal Care
+//   Direct = 2
+//
+// Bath Soap = 10
+// Tooth Paste = 5
+//
+// Personal Care productCount = 17
+//
+// Returned fields:
+//
+// productCount
+// productsCount
+// totalProducts
+//
+// All 3 contain same value.
+// ========================================
+
+const buildProductCountContext = async ({
+  activeOnly = false,
+} = {}) => {
+  // IMPORTANT:
+  // MongoDB data may contain category IDs as ObjectId values or
+  // legacy string values. Convert both sides to strings before
+  // comparing so counting remains reliable for old/imported data.
+
+  const categoryFilter = activeOnly
+    ? {
+        isActive: true,
+      }
+    : {};
+
+  const productMatch = {
+    category: {
+      $ne: null,
+    },
+  };
+
+  // Public/active category endpoints should count the same products
+  // the storefront can actually display.
+  if (activeOnly) {
+    productMatch.isActive = true;
+  }
+
+  const [
+    categoryRows,
+    productCountRows,
+  ] = await Promise.all([
+    Category.find(categoryFilter)
+      .select(
+        "_id parentCategory"
+      )
+      .lean(),
+
+    Product.aggregate([
+      {
+        $match: productMatch,
+      },
+      {
+        $project: {
+          categoryKey: {
+            $convert: {
+              input: "$category",
+              to: "string",
+              onError: "",
+              onNull: "",
+            },
+          },
+        },
+      },
+      {
+        $match: {
+          categoryKey: {
+            $ne: "",
+          },
+        },
+      },
+      {
+        $group: {
+          _id: "$categoryKey",
+          count: {
+            $sum: 1,
+          },
+        },
+      },
+    ]),
+  ]);
+
+  // ----------------------------------------
+  // DIRECT PRODUCT COUNTS
+  // ----------------------------------------
+
+  const directCountMap =
+    new Map();
+
+  for (
+    const row of productCountRows
+  ) {
+    const categoryId =
+      getCategoryIdString(
+        row._id
+      );
+
+    if (categoryId) {
+      directCountMap.set(
+        categoryId,
+        Number(row.count) || 0
+      );
+    }
+  }
+
+  // ----------------------------------------
+  // CATEGORY -> CHILDREN MAP
+  // ----------------------------------------
+
+  const childrenMap =
+    new Map();
+
+  for (
+    const category of categoryRows
+  ) {
+    const categoryId =
+      getCategoryIdString(
+        category._id
+      );
+
+    const parentId =
+      getCategoryIdString(
+        category.parentCategory
+      );
+
+    if (
+      !categoryId ||
+      !parentId
+    ) {
+      continue;
+    }
+
+    if (
+      !childrenMap.has(
+        parentId
+      )
+    ) {
+      childrenMap.set(
+        parentId,
+        []
+      );
+    }
+
+    childrenMap
+      .get(parentId)
+      .push(categoryId);
+  }
+
+  const totalCountCache =
+    new Map();
+
+  // ----------------------------------------
+  // DIRECT COUNT
+  // ----------------------------------------
+
+  const getDirectCount = (
+    categoryId
+  ) => {
+    const id =
+      getCategoryIdString(
+        categoryId
+      );
+
+    if (!id) {
+      return 0;
+    }
+
+    return (
+      directCountMap.get(id) ||
+      0
+    );
+  };
+
+  // ----------------------------------------
+  // TOTAL COUNT
+  //
+  // Main category:
+  // direct + child products
+  //
+  // Subcategory:
+  // direct products
+  //
+  // Recursive on purpose so the API still gives the correct total
+  // if legacy data contains more than two hierarchy levels.
+  // ----------------------------------------
+
+  const getTotalCount = (
+    categoryId,
+    visited = new Set()
+  ) => {
+    const id =
+      getCategoryIdString(
+        categoryId
+      );
+
+    if (!id) {
+      return 0;
+    }
+
+    if (
+      totalCountCache.has(id)
+    ) {
+      return totalCountCache.get(
+        id
+      );
+    }
+
+    // Protection against accidental circular category relations.
+    if (
+      visited.has(id)
+    ) {
+      return getDirectCount(
+        id
+      );
+    }
+
+    const nextVisited =
+      new Set(visited);
+
+    nextVisited.add(id);
+
+    let total =
+      getDirectCount(id);
+
+    const childIds =
+      childrenMap.get(id) ||
+      [];
+
+    for (
+      const childId of childIds
+    ) {
+      total +=
+        getTotalCount(
+          childId,
+          nextVisited
+        );
+    }
+
+    totalCountCache.set(
+      id,
+      total
+    );
+
+    return total;
+  };
+
+  return {
+    getDirectCount,
+    getTotalCount,
+  };
+};
+
+// ========================================
+// ADD PRODUCT COUNT TO ONE CATEGORY
+// ========================================
+
+const addCountFields = (
+  category,
+  countContext
+) => {
+  const plainCategory =
+    toPlainObject(
+      category
+    );
+
+  const directProductCount =
+    countContext.getDirectCount(
+      plainCategory._id
+    );
+
+  const productCount =
+    countContext.getTotalCount(
+      plainCategory._id
+    );
+
+  return {
+    ...plainCategory,
+
+    directProductCount,
+
+    productCount,
+
+    productsCount:
+      productCount,
+
+    totalProducts:
+      productCount,
+  };
+};
+
+// ========================================
+// ADD COUNTS TO FLAT CATEGORY LIST
+// ========================================
+
+const attachProductCounts =
+  async (
+    categories,
+    {
+      activeOnly = false,
+      countContext = null,
+    } = {}
+  ) => {
+    const context =
+      countContext ||
+      (await buildProductCountContext({
+        activeOnly,
+      }));
+
+    return categories.map(
+      (category) =>
+        addCountFields(
+          category,
+          context
+        )
+    );
+  };
+
+// ========================================
+// ADD COUNTS TO CATEGORY TREE
+// ========================================
+
+const attachProductCountsToTree =
+  async (
+    tree,
+    {
+      activeOnly = true,
+      countContext = null,
+    } = {}
+  ) => {
+    const context =
+      countContext ||
+      (await buildProductCountContext({
+        activeOnly,
+      }));
+
+    const enrichNode = (
+      node
+    ) => {
+      const plainNode =
+        toPlainObject(
+          node
+        );
+
+      const productCount =
+        context.getTotalCount(
+          plainNode._id
+        );
+
+      const children =
+        Array.isArray(
+          plainNode.children
+        )
+          ? plainNode.children.map(
+              enrichNode
+            )
+          : plainNode.children;
+
+      return {
+        ...plainNode,
+
+        productCount,
+
+        productsCount:
+          productCount,
+
+        totalProducts:
+          productCount,
+
+        ...(children !==
+        undefined
+          ? {
+              children,
+            }
+          : {}),
+      };
+    };
+
+    return tree.map(
+      enrichNode
+    );
+  };
+
+// ========================================
+// VALIDATE PARENT CATEGORY
 // ========================================
 
 const validateParentCategory =
@@ -107,7 +505,9 @@ const validateParentCategory =
     if (!normalizedParent) {
       return {
         valid: true,
-        parentCategory: null,
+
+        parentCategory:
+          null,
       };
     }
 
@@ -151,10 +551,13 @@ const validateParentCategory =
       };
     }
 
-    // ------------------------------------
-    // Prevent subcategory inside another
-    // subcategory.
-    // ------------------------------------
+    // Prevent:
+    //
+    // Main Category
+    //     ↓
+    // Subcategory
+    //     ↓
+    // Another Subcategory
 
     if (
       parentCategory.parentCategory
@@ -178,14 +581,6 @@ const validateParentCategory =
 // CREATE CATEGORY
 //
 // POST /api/categories
-//
-// Main Category:
-//
-// parentCategory = null
-//
-// Subcategory:
-//
-// parentCategory = Main Category ID
 // ========================================
 
 const createCategory = async (
@@ -203,35 +598,53 @@ const createCategory = async (
     } = req.body;
 
     // ------------------------------------
-    // NAME
+    // NAME VALIDATION
     // ------------------------------------
 
     if (
       !name ||
       !name.toString().trim()
     ) {
-      return res.status(400).json({
-        success: false,
+      return res
+        .status(400)
+        .json({
+          success: false,
 
-        message:
-          "Category name is required",
-      });
+          message:
+            "Category name is required",
+        });
     }
 
     const cleanName =
-      name.toString().trim();
+      name
+        .toString()
+        .trim();
 
     const slug =
-      createSlug(cleanName);
+      createSlug(
+        cleanName
+      );
 
     if (!slug) {
-      return res.status(400).json({
-        success: false,
+      return res
+        .status(400)
+        .json({
+          success: false,
 
-        message:
-          "Unable to create a valid category slug",
-      });
+          message:
+            "Unable to create a valid category slug",
+        });
     }
+
+    // ------------------------------------
+    // ESCAPE REGEX
+    // ------------------------------------
+
+    const escapedName =
+      cleanName.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+      );
 
     // ------------------------------------
     // DUPLICATE CHECK
@@ -243,12 +656,10 @@ const createCategory = async (
           {
             name: {
               $regex:
-                `^${cleanName.replace(
-                  /[.*+?^${}()|[\]\\]/g,
-                  "\\$&"
-                )}$`,
+                `^${escapedName}$`,
 
-              $options: "i",
+              $options:
+                "i",
             },
           },
 
@@ -259,16 +670,18 @@ const createCategory = async (
       });
 
     if (existingCategory) {
-      return res.status(400).json({
-        success: false,
+      return res
+        .status(400)
+        .json({
+          success: false,
 
-        message:
-          "Category already exists",
-      });
+          message:
+            "Category already exists",
+        });
     }
 
     // ------------------------------------
-    // PARENT VALIDATION
+    // PARENT CATEGORY
     // ------------------------------------
 
     const parentValidation =
@@ -280,12 +693,14 @@ const createCategory = async (
     if (
       !parentValidation.valid
     ) {
-      return res.status(400).json({
-        success: false,
+      return res
+        .status(400)
+        .json({
+          success: false,
 
-        message:
-          parentValidation.message,
-      });
+          message:
+            parentValidation.message,
+        });
     }
 
     // ------------------------------------
@@ -299,14 +714,17 @@ const createCategory = async (
       );
 
     if (
-      normalizedSortOrder === null
+      normalizedSortOrder ===
+      null
     ) {
-      return res.status(400).json({
-        success: false,
+      return res
+        .status(400)
+        .json({
+          success: false,
 
-        message:
-          "Sort order must be a valid non-negative number",
-      });
+          message:
+            "Sort order must be a valid non-negative number",
+        });
     }
 
     // ------------------------------------
@@ -321,7 +739,8 @@ const createCategory = async (
         slug,
 
         description:
-          description?.toString() ||
+          description
+            ?.toString() ||
           "",
 
         image:
@@ -329,7 +748,8 @@ const createCategory = async (
 
         parentCategory:
           parentValidation
-            .parentCategory?._id ||
+            .parentCategory
+            ?._id ||
           null,
 
         isActive:
@@ -361,7 +781,20 @@ const createCategory = async (
             ? "Subcategory created successfully"
             : "Main category created successfully",
 
-        category,
+        category: {
+          ...toPlainObject(
+            category
+          ),
+
+          productCount:
+            0,
+
+          productsCount:
+            0,
+
+          totalProducts:
+            0,
+        },
       });
   } catch (error) {
     console.error(
@@ -370,7 +803,8 @@ const createCategory = async (
     );
 
     if (
-      error?.code === 11000
+      error?.code ===
+      11000
     ) {
       return res
         .status(400)
@@ -390,7 +824,8 @@ const createCategory = async (
         message:
           "Failed to create category",
 
-        error: error.message,
+        error:
+          error.message,
       });
   }
 };
@@ -399,12 +834,6 @@ const createCategory = async (
 // GET ALL CATEGORIES
 //
 // GET /api/categories
-//
-// Flat list.
-// Useful for:
-// - Admin
-// - Select fields
-// - Existing frontend compatibility
 // ========================================
 
 const getCategories = async (
@@ -423,15 +852,33 @@ const getCategories = async (
           name: 1,
         });
 
+    // ------------------------------------
+    // CALCULATE PRODUCTS
+    // ------------------------------------
+
+    const countContext =
+      await buildProductCountContext({
+        activeOnly: false,
+      });
+
+    const categoriesWithCounts =
+      await attachProductCounts(
+        categories,
+        {
+          countContext,
+        }
+      );
+
     return res
       .status(200)
       .json({
         success: true,
 
         count:
-          categories.length,
+          categoriesWithCounts.length,
 
-        categories,
+        categories:
+          categoriesWithCounts,
       });
   } catch (error) {
     console.error(
@@ -447,7 +894,8 @@ const getCategories = async (
         message:
           "Failed to fetch categories",
 
-        error: error.message,
+        error:
+          error.message,
       });
   }
 };
@@ -456,16 +904,18 @@ const getCategories = async (
 // GET ACTIVE CATEGORIES
 //
 // GET /api/categories/active
-//
-// Flat active category list.
 // ========================================
 
 const getActiveCategories =
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const categories =
         await Category.find({
-          isActive: true,
+          isActive:
+            true,
         })
           .populate(
             "parentCategory",
@@ -476,15 +926,34 @@ const getActiveCategories =
             name: 1,
           });
 
+      // ----------------------------------
+      // CALCULATE PRODUCT COUNTS
+      // ----------------------------------
+
+      const countContext =
+        await buildProductCountContext({
+          activeOnly:
+            true,
+        });
+
+      const categoriesWithCounts =
+        await attachProductCounts(
+          categories,
+          {
+            countContext,
+          }
+        );
+
       return res
         .status(200)
         .json({
           success: true,
 
           count:
-            categories.length,
+            categoriesWithCounts.length,
 
-          categories,
+          categories:
+            categoriesWithCounts,
         });
     } catch (error) {
       console.error(
@@ -500,7 +969,8 @@ const getActiveCategories =
           message:
             "Failed to fetch active categories",
 
-          error: error.message,
+          error:
+            error.message,
         });
     }
   };
@@ -510,28 +980,45 @@ const getActiveCategories =
 //
 // GET /api/categories/main
 //
-// Returns only:
-//
-// Grocery
-// Personal Care
-// Baby Care
-// etc.
-//
-// These will be shown in the
-// HEADER MAIN ROW.
+// Main category count includes:
+// direct products + subcategory products
 // ========================================
 
 const getMainCategories =
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const categories =
         await Category.find({
-          parentCategory: null,
-          isActive: true,
+          parentCategory:
+            null,
+
+          isActive:
+            true,
         }).sort({
           sortOrder: 1,
           name: 1,
         });
+
+      // ----------------------------------
+      // PRODUCT COUNTS
+      // ----------------------------------
+
+      const countContext =
+        await buildProductCountContext({
+          activeOnly:
+            true,
+        });
+
+      const categoriesWithCounts =
+        await attachProductCounts(
+          categories,
+          {
+            countContext,
+          }
+        );
 
       return res
         .status(200)
@@ -539,9 +1026,10 @@ const getMainCategories =
           success: true,
 
           count:
-            categories.length,
+            categoriesWithCounts.length,
 
-          categories,
+          categories:
+            categoriesWithCounts,
         });
     } catch (error) {
       console.error(
@@ -557,7 +1045,8 @@ const getMainCategories =
           message:
             "Failed to fetch main categories",
 
-          error: error.message,
+          error:
+            error.message,
         });
     }
   };
@@ -566,31 +1055,41 @@ const getMainCategories =
 // GET SUBCATEGORIES
 //
 // GET /api/categories/:id/subcategories
-//
-// Example:
-//
-// /api/categories/GROCERY_ID/subcategories
 // ========================================
 
 const getSubcategories =
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const {
         id,
       } = req.params;
 
+      // ----------------------------------
+      // VALIDATE ID
+      // ----------------------------------
+
       if (
-        !isValidObjectId(id)
+        !isValidObjectId(
+          id
+        )
       ) {
         return res
           .status(400)
           .json({
-            success: false,
+            success:
+              false,
 
             message:
               "Invalid category ID",
           });
       }
+
+      // ----------------------------------
+      // FIND PARENT
+      // ----------------------------------
 
       const parent =
         await Category.findById(
@@ -601,12 +1100,17 @@ const getSubcategories =
         return res
           .status(404)
           .json({
-            success: false,
+            success:
+              false,
 
             message:
               "Main category not found",
           });
       }
+
+      // ----------------------------------
+      // MUST BE MAIN CATEGORY
+      // ----------------------------------
 
       if (
         parent.parentCategory
@@ -614,44 +1118,91 @@ const getSubcategories =
         return res
           .status(400)
           .json({
-            success: false,
+            success:
+              false,
 
             message:
               "Subcategories can only be requested for a main category",
           });
       }
 
+      // ----------------------------------
+      // FIND SUBCATEGORIES
+      // ----------------------------------
+
       const categories =
         await Category.find({
           parentCategory:
             parent._id,
 
-          isActive: true,
+          isActive:
+            true,
         }).sort({
-          sortOrder: 1,
-          name: 1,
+          sortOrder:
+            1,
+
+          name:
+            1,
         });
+
+      // ----------------------------------
+      // PRODUCT COUNTS
+      // ----------------------------------
+
+      const countContext =
+        await buildProductCountContext({
+          activeOnly:
+            true,
+        });
+
+      const categoriesWithCounts =
+        await attachProductCounts(
+          categories,
+          {
+            countContext,
+          }
+        );
+
+      const parentWithCount =
+        addCountFields(
+          parent,
+          countContext
+        );
 
       return res
         .status(200)
         .json({
-          success: true,
+          success:
+            true,
 
           parentCategory: {
             _id:
-              parent._id,
+              parentWithCount._id,
 
             name:
-              parent.name,
+              parentWithCount.name,
 
             slug:
-              parent.slug,
+              parentWithCount.slug,
+
+            productCount:
+              parentWithCount
+                .productCount,
+
+            productsCount:
+              parentWithCount
+                .productsCount,
+
+            totalProducts:
+              parentWithCount
+                .totalProducts,
           },
 
           count:
-            categories.length,
+            categoriesWithCounts.length,
 
-          categories,
+          categories:
+            categoriesWithCounts,
         });
     } catch (error) {
       console.error(
@@ -662,12 +1213,14 @@ const getSubcategories =
       return res
         .status(500)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Failed to fetch subcategories",
 
-          error: error.message,
+          error:
+            error.message,
         });
     }
   };
@@ -676,43 +1229,53 @@ const getSubcategories =
 // GET CATEGORY TREE
 //
 // GET /api/categories/tree
-//
-// Response:
-//
-// [
-//   {
-//     name: "Personal Care",
-//     children: [
-//       { name: "Bath Soap" },
-//       { name: "Face Wash" }
-//     ]
-//   }
-// ]
-//
-// This is the endpoint Header.jsx
-// will use.
 // ========================================
 
 const getCategoryTree =
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
+      // ----------------------------------
+      // GET TREE
+      // ----------------------------------
+
       const tree =
-        await Category.getCategoryTree(
+        await Category.getCategoryTree({
+          activeOnly:
+            true,
+        });
+
+      // ----------------------------------
+      // PRODUCT COUNTS
+      // ----------------------------------
+
+      const countContext =
+        await buildProductCountContext({
+          activeOnly:
+            true,
+        });
+
+      const treeWithCounts =
+        await attachProductCountsToTree(
+          tree,
           {
-            activeOnly: true,
+            countContext,
           }
         );
 
       return res
         .status(200)
         .json({
-          success: true,
+          success:
+            true,
 
           count:
-            tree.length,
+            treeWithCounts.length,
 
           categories:
-            tree,
+            treeWithCounts,
         });
     } catch (error) {
       console.error(
@@ -723,12 +1286,14 @@ const getCategoryTree =
       return res
         .status(500)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
             "Failed to fetch category tree",
 
-          error: error.message,
+          error:
+            error.message,
         });
     }
   };
@@ -739,89 +1304,139 @@ const getCategoryTree =
 // GET /api/categories/:id
 // ========================================
 
-const getCategoryById = async (
-  req,
-  res
-) => {
-  try {
-    const {
-      id,
-    } = req.params;
+const getCategoryById =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const {
+        id,
+      } = req.params;
 
-    if (
-      !isValidObjectId(id)
-    ) {
-      return res.status(400).json({
-        success: false,
+      // ----------------------------------
+      // VALIDATE ID
+      // ----------------------------------
 
-        message:
-          "Invalid category ID",
-      });
-    }
+      if (
+        !isValidObjectId(
+          id
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            success:
+              false,
 
-    const category =
-      await Category.findById(
-        id
-      ).populate(
-        "parentCategory",
-        "name slug isActive sortOrder"
+            message:
+              "Invalid category ID",
+          });
+      }
+
+      // ----------------------------------
+      // FIND CATEGORY
+      // ----------------------------------
+
+      const category =
+        await Category.findById(
+          id
+        ).populate(
+          "parentCategory",
+          "name slug isActive sortOrder"
+        );
+
+      if (!category) {
+        return res
+          .status(404)
+          .json({
+            success:
+              false,
+
+            message:
+              "Category not found",
+          });
+      }
+
+      // ----------------------------------
+      // CHILDREN
+      // ----------------------------------
+
+      let children =
+        [];
+
+      if (
+        !category.parentCategory
+      ) {
+        children =
+          await Category.find({
+            parentCategory:
+              category._id,
+          }).sort({
+            sortOrder:
+              1,
+
+            name:
+              1,
+          });
+      }
+
+      // ----------------------------------
+      // PRODUCT COUNTS
+      // ----------------------------------
+
+      const countContext =
+        await buildProductCountContext({
+          activeOnly:
+            false,
+        });
+
+      const categoryWithCount =
+        addCountFields(
+          category,
+          countContext
+        );
+
+      const childrenWithCounts =
+        await attachProductCounts(
+          children,
+          {
+            countContext,
+          }
+        );
+
+      return res
+        .status(200)
+        .json({
+          success:
+            true,
+
+          category:
+            categoryWithCount,
+
+          children:
+            childrenWithCounts,
+        });
+    } catch (error) {
+      console.error(
+        "Get Category By ID Error:",
+        error
       );
 
-    if (!category) {
-      return res.status(404).json({
-        success: false,
+      return res
+        .status(500)
+        .json({
+          success:
+            false,
 
-        message:
-          "Category not found",
-      });
-    }
+          message:
+            "Failed to fetch category",
 
-    // ------------------------------------
-    // If main category, also return children
-    // ------------------------------------
-
-    let children = [];
-
-    if (
-      !category.parentCategory
-    ) {
-      children =
-        await Category.find({
-          parentCategory:
-            category._id,
-        }).sort({
-          sortOrder: 1,
-          name: 1,
+          error:
+            error.message,
         });
     }
-
-    return res
-      .status(200)
-      .json({
-        success: true,
-
-        category,
-
-        children,
-      });
-  } catch (error) {
-    console.error(
-      "Get Category By ID Error:",
-      error
-    );
-
-    return res
-      .status(500)
-      .json({
-        success: false,
-
-        message:
-          "Failed to fetch category",
-
-        error: error.message,
-      });
-  }
-};
+  };
 
 // ========================================
 // UPDATE CATEGORY
@@ -829,462 +1444,526 @@ const getCategoryById = async (
 // PUT /api/categories/:id
 // ========================================
 
-const updateCategory = async (
-  req,
-  res
-) => {
-  try {
-    const {
-      id,
-    } = req.params;
+const updateCategory =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const {
+        id,
+      } = req.params;
 
-    if (
-      !isValidObjectId(id)
-    ) {
-      return res.status(400).json({
-        success: false,
-
-        message:
-          "Invalid category ID",
-      });
-    }
-
-    const category =
-      await Category.findById(
-        id
-      );
-
-    if (!category) {
-      return res.status(404).json({
-        success: false,
-
-        message:
-          "Category not found",
-      });
-    }
-
-    const {
-      name,
-      description,
-      image,
-      parentCategory,
-      isActive,
-      sortOrder,
-    } = req.body;
-
-    // ------------------------------------
-    // NAME
-    // ------------------------------------
-
-    if (name !== undefined) {
-      const cleanName =
-        name
-          .toString()
-          .trim();
-
-      if (!cleanName) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              "Category name cannot be empty",
-          });
-      }
-
-      const newSlug =
-        createSlug(cleanName);
-
-      if (!newSlug) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              "Unable to create a valid category slug",
-          });
-      }
-
-      const escapedName =
-        cleanName.replace(
-          /[.*+?^${}()|[\]\\]/g,
-          "\\$&"
-        );
-
-      const duplicateCategory =
-        await Category.findOne({
-          _id: {
-            $ne:
-              category._id,
-          },
-
-          $or: [
-            {
-              name: {
-                $regex:
-                  `^${escapedName}$`,
-
-                $options: "i",
-              },
-            },
-
-            {
-              slug:
-                newSlug,
-            },
-          ],
-        });
+      // ----------------------------------
+      // VALIDATE ID
+      // ----------------------------------
 
       if (
-        duplicateCategory
+        !isValidObjectId(
+          id
+        )
       ) {
         return res
           .status(400)
           .json({
-            success: false,
+            success:
+              false,
 
             message:
-              "Another category with this name already exists",
+              "Invalid category ID",
           });
       }
 
-      category.name =
-        cleanName;
+      // ----------------------------------
+      // FIND CATEGORY
+      // ----------------------------------
 
-      category.slug =
-        newSlug;
-    }
+      const category =
+        await Category.findById(
+          id
+        );
 
-    // ------------------------------------
-    // DESCRIPTION
-    // ------------------------------------
+      if (!category) {
+        return res
+          .status(404)
+          .json({
+            success:
+              false,
 
-    if (
-      description !== undefined
-    ) {
-      category.description =
-        description?.toString() ||
-        "";
-    }
+            message:
+              "Category not found",
+          });
+      }
 
-    // ------------------------------------
-    // IMAGE
-    // ------------------------------------
+      const {
+        name,
+        description,
+        image,
+        parentCategory,
+        isActive,
+        sortOrder,
+      } = req.body;
 
-    if (image !== undefined) {
-      category.image =
-        image || "";
-    }
+      // ----------------------------------
+      // NAME
+      // ----------------------------------
 
-    // ------------------------------------
-    // PARENT CATEGORY
-    // ------------------------------------
+      if (
+        name !== undefined
+      ) {
+        const cleanName =
+          name
+            .toString()
+            .trim();
 
-    if (
-      parentCategory !==
-      undefined
-    ) {
-      const parentValidation =
-        await validateParentCategory(
-          {
+        if (!cleanName) {
+          return res
+            .status(400)
+            .json({
+              success:
+                false,
+
+              message:
+                "Category name cannot be empty",
+            });
+        }
+
+        const newSlug =
+          createSlug(
+            cleanName
+          );
+
+        if (!newSlug) {
+          return res
+            .status(400)
+            .json({
+              success:
+                false,
+
+              message:
+                "Unable to create a valid category slug",
+            });
+        }
+
+        const escapedName =
+          cleanName.replace(
+            /[.*+?^${}()|[\]\\]/g,
+            "\\$&"
+          );
+
+        const duplicateCategory =
+          await Category.findOne({
+            _id: {
+              $ne:
+                category._id,
+            },
+
+            $or: [
+              {
+                name: {
+                  $regex:
+                    `^${escapedName}$`,
+
+                  $options:
+                    "i",
+                },
+              },
+
+              {
+                slug:
+                  newSlug,
+              },
+            ],
+          });
+
+        if (
+          duplicateCategory
+        ) {
+          return res
+            .status(400)
+            .json({
+              success:
+                false,
+
+              message:
+                "Another category with this name already exists",
+            });
+        }
+
+        category.name =
+          cleanName;
+
+        category.slug =
+          newSlug;
+      }
+
+      // ----------------------------------
+      // DESCRIPTION
+      // ----------------------------------
+
+      if (
+        description !==
+        undefined
+      ) {
+        category.description =
+          description
+            ?.toString() ||
+          "";
+      }
+
+      // ----------------------------------
+      // IMAGE
+      // ----------------------------------
+
+      if (
+        image !==
+        undefined
+      ) {
+        category.image =
+          image || "";
+      }
+
+      // ----------------------------------
+      // PARENT CATEGORY
+      // ----------------------------------
+
+      if (
+        parentCategory !==
+        undefined
+      ) {
+        const parentValidation =
+          await validateParentCategory({
             parentCategoryId:
               parentCategory,
 
             currentCategoryId:
               category._id,
-          }
-        );
-
-      if (
-        !parentValidation.valid
-      ) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              parentValidation.message,
           });
-      }
 
-      // ----------------------------------
-      // If current category has children,
-      // it cannot become a subcategory.
-      //
-      // Otherwise hierarchy could become:
-      //
-      // Parent
-      //   ↓
-      // Category
-      //   ↓
-      // Child
-      //
-      // which we do not allow.
-      // ----------------------------------
-
-      if (
-        parentValidation
-          .parentCategory
-      ) {
-        const childCount =
-          await Category.countDocuments(
-            {
-              parentCategory:
-                category._id,
-            }
-          );
-
-        if (childCount > 0) {
+        if (
+          !parentValidation.valid
+        ) {
           return res
             .status(400)
             .json({
-              success: false,
+              success:
+                false,
 
               message:
-                "This category has subcategories. Move or delete its subcategories before converting it into a subcategory.",
+                parentValidation.message,
             });
         }
+
+        // If category already has
+        // subcategories it cannot
+        // become a subcategory.
+
+        if (
+          parentValidation
+            .parentCategory
+        ) {
+          const childCount =
+            await Category.countDocuments({
+              parentCategory:
+                category._id,
+            });
+
+          if (
+            childCount >
+            0
+          ) {
+            return res
+              .status(400)
+              .json({
+                success:
+                  false,
+
+                message:
+                  "This category has subcategories. Move or delete its subcategories before converting it into a subcategory.",
+              });
+          }
+        }
+
+        category.parentCategory =
+          parentValidation
+            .parentCategory
+            ?._id ||
+          null;
       }
 
-      category.parentCategory =
-        parentValidation
-          .parentCategory?._id ||
-        null;
-    }
-
-    // ------------------------------------
-    // STATUS
-    // ------------------------------------
-
-    if (
-      typeof isActive ===
-      "boolean"
-    ) {
-      category.isActive =
-        isActive;
-    }
-
-    // ------------------------------------
-    // SORT ORDER
-    // ------------------------------------
-
-    if (
-      sortOrder !== undefined
-    ) {
-      const normalizedSortOrder =
-        normalizeSortOrder(
-          sortOrder,
-          category.sortOrder
-        );
+      // ----------------------------------
+      // STATUS
+      // ----------------------------------
 
       if (
-        normalizedSortOrder ===
-        null
+        typeof isActive ===
+        "boolean"
+      ) {
+        category.isActive =
+          isActive;
+      }
+
+      // ----------------------------------
+      // SORT ORDER
+      // ----------------------------------
+
+      if (
+        sortOrder !==
+        undefined
+      ) {
+        const normalizedSortOrder =
+          normalizeSortOrder(
+            sortOrder,
+            category.sortOrder
+          );
+
+        if (
+          normalizedSortOrder ===
+          null
+        ) {
+          return res
+            .status(400)
+            .json({
+              success:
+                false,
+
+              message:
+                "Sort order must be a valid non-negative number",
+            });
+        }
+
+        category.sortOrder =
+          normalizedSortOrder;
+      }
+
+      // ----------------------------------
+      // SAVE
+      // ----------------------------------
+
+      const updatedCategory =
+        await category.save();
+
+      await updatedCategory.populate(
+        "parentCategory",
+        "name slug isActive sortOrder"
+      );
+
+      // ----------------------------------
+      // RETURN UPDATED COUNT
+      // ----------------------------------
+
+      const countContext =
+        await buildProductCountContext({
+          activeOnly:
+            false,
+        });
+
+      const updatedCategoryWithCount =
+        addCountFields(
+          updatedCategory,
+          countContext
+        );
+
+      return res
+        .status(200)
+        .json({
+          success:
+            true,
+
+          message:
+            "Category updated successfully",
+
+          category:
+            updatedCategoryWithCount,
+        });
+    } catch (error) {
+      console.error(
+        "Update Category Error:",
+        error
+      );
+
+      if (
+        error?.code ===
+        11000
       ) {
         return res
           .status(400)
           .json({
-            success: false,
+            success:
+              false,
 
             message:
-              "Sort order must be a valid non-negative number",
+              "Category name or slug already exists",
           });
       }
 
-      category.sortOrder =
-        normalizedSortOrder;
-    }
-
-    // ------------------------------------
-    // SAVE
-    // ------------------------------------
-
-    const updatedCategory =
-      await category.save();
-
-    await updatedCategory.populate(
-      "parentCategory",
-      "name slug isActive sortOrder"
-    );
-
-    return res
-      .status(200)
-      .json({
-        success: true,
-
-        message:
-          "Category updated successfully",
-
-        category:
-          updatedCategory,
-      });
-  } catch (error) {
-    console.error(
-      "Update Category Error:",
-      error
-    );
-
-    if (
-      error?.code === 11000
-    ) {
       return res
-        .status(400)
+        .status(500)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
-            "Category name or slug already exists",
+            "Failed to update category",
+
+          error:
+            error.message,
         });
     }
-
-    return res
-      .status(500)
-      .json({
-        success: false,
-
-        message:
-          "Failed to update category",
-
-        error: error.message,
-      });
-  }
-};
+  };
 
 // ========================================
 // DELETE CATEGORY
 //
 // DELETE /api/categories/:id
-//
-// Protection:
-//
-// 1. Cannot delete Main Category
-//    if it has Subcategories.
-//
-// 2. Cannot delete category if
-//    Products are using it.
 // ========================================
 
-const deleteCategory = async (
-  req,
-  res
-) => {
-  try {
-    const {
-      id,
-    } = req.params;
+const deleteCategory =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const {
+        id,
+      } = req.params;
 
-    if (
-      !isValidObjectId(id)
-    ) {
-      return res.status(400).json({
-        success: false,
+      // ----------------------------------
+      // VALIDATE ID
+      // ----------------------------------
 
-        message:
-          "Invalid category ID",
-      });
-    }
+      if (
+        !isValidObjectId(
+          id
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            success:
+              false,
 
-    const category =
-      await Category.findById(
-        id
+            message:
+              "Invalid category ID",
+          });
+      }
+
+      // ----------------------------------
+      // FIND CATEGORY
+      // ----------------------------------
+
+      const category =
+        await Category.findById(
+          id
+        );
+
+      if (!category) {
+        return res
+          .status(404)
+          .json({
+            success:
+              false,
+
+            message:
+              "Category not found",
+          });
+      }
+
+      // ----------------------------------
+      // CHECK SUBCATEGORIES
+      // ----------------------------------
+
+      const subcategoryCount =
+        await Category.countDocuments({
+          parentCategory:
+            category._id,
+        });
+
+      if (
+        subcategoryCount >
+        0
+      ) {
+        return res
+          .status(400)
+          .json({
+            success:
+              false,
+
+            message:
+              `This category has ${subcategoryCount} subcategor${
+                subcategoryCount ===
+                1
+                  ? "y"
+                  : "ies"
+              }. Delete or move them first.`,
+          });
+      }
+
+      // ----------------------------------
+      // CHECK PRODUCTS
+      // ----------------------------------
+
+      const productCount =
+        await Product.countDocuments({
+          category:
+            category._id,
+        });
+
+      if (
+        productCount >
+        0
+      ) {
+        return res
+          .status(400)
+          .json({
+            success:
+              false,
+
+            message:
+              `This category is used by ${productCount} product${
+                productCount ===
+                1
+                  ? ""
+                  : "s"
+              }. Move those products to another category before deleting it.`,
+          });
+      }
+
+      // ----------------------------------
+      // DELETE
+      // ----------------------------------
+
+      await category.deleteOne();
+
+      return res
+        .status(200)
+        .json({
+          success:
+            true,
+
+          message:
+            "Category deleted successfully",
+        });
+    } catch (error) {
+      console.error(
+        "Delete Category Error:",
+        error
       );
 
-    if (!category) {
-      return res.status(404).json({
-        success: false,
-
-        message:
-          "Category not found",
-      });
-    }
-
-    // ------------------------------------
-    // CHECK SUBCATEGORIES
-    // ------------------------------------
-
-    const subcategoryCount =
-      await Category.countDocuments({
-        parentCategory:
-          category._id,
-      });
-
-    if (
-      subcategoryCount > 0
-    ) {
       return res
-        .status(400)
+        .status(500)
         .json({
-          success: false,
+          success:
+            false,
 
           message:
-            `This category has ${subcategoryCount} subcategor${
-              subcategoryCount === 1
-                ? "y"
-                : "ies"
-            }. Delete or move them first.`,
+            "Failed to delete category",
+
+          error:
+            error.message,
         });
     }
-
-    // ------------------------------------
-    // CHECK PRODUCTS
-    // ------------------------------------
-
-    const productCount =
-      await Product.countDocuments({
-        category:
-          category._id,
-      });
-
-    if (productCount > 0) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-
-          message:
-            `This category is used by ${productCount} product${
-              productCount === 1
-                ? ""
-                : "s"
-            }. Move those products to another category before deleting it.`,
-        });
-    }
-
-    // ------------------------------------
-    // DELETE
-    // ------------------------------------
-
-    await category.deleteOne();
-
-    return res
-      .status(200)
-      .json({
-        success: true,
-
-        message:
-          "Category deleted successfully",
-      });
-  } catch (error) {
-    console.error(
-      "Delete Category Error:",
-      error
-    );
-
-    return res
-      .status(500)
-      .json({
-        success: false,
-
-        message:
-          "Failed to delete category",
-
-        error: error.message,
-      });
-  }
-};
+  };
 
 // ========================================
 // EXPORTS

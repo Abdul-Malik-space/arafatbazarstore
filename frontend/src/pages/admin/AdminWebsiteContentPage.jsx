@@ -69,6 +69,22 @@ const createClientId = (
 // NORMALIZERS
 // ========================================
 
+const clampPercent = (
+  value,
+  fallback
+) => {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+
+  return Math.min(
+    100,
+    Math.max(0, number)
+  );
+};
+
 const normalizeHeroSlide = (
   slide = {}
 ) => ({
@@ -78,6 +94,11 @@ const normalizeHeroSlide = (
     slide._id ||
     createClientId("hero"),
 
+  smallTitle:
+    slide.smallTitle || "",
+
+  // All overlay text is optional.
+  // Leave blank when text already exists inside the banner image.
   title:
     slide.title || "",
 
@@ -89,13 +110,40 @@ const normalizeHeroSlide = (
   priceText:
     slide.priceText || "",
 
+  textColor:
+    slide.textColor ||
+    "#ffffff",
+
+  // CTA is optional too.
   buttonText:
-    slide.buttonText ||
-    "Shop now",
+    slide.buttonText || "",
 
   buttonUrl:
     slide.buttonUrl ||
     "/shop",
+
+  buttonBackgroundColor:
+    slide.buttonBackgroundColor ||
+    "#272727",
+
+  buttonTextColor:
+    slide.buttonTextColor ||
+    "#ffffff",
+
+  buttonCustomPosition:
+    slide.buttonCustomPosition === true,
+
+  buttonPositionX:
+    clampPercent(
+      slide.buttonPositionX,
+      15
+    ),
+
+  buttonPositionY:
+    clampPercent(
+      slide.buttonPositionY,
+      75
+    ),
 
   image:
     slide.image || "",
@@ -238,6 +286,10 @@ const serializeHeroSlide = (
   slide
 ) => {
   const payload = {
+    smallTitle:
+      slide.smallTitle?.trim() ||
+      "",
+
     title:
       slide.title?.trim() ||
       "",
@@ -250,13 +302,40 @@ const serializeHeroSlide = (
       slide.priceText?.trim() ||
       "",
 
+    textColor:
+      slide.textColor ||
+      "#ffffff",
+
     buttonText:
       slide.buttonText?.trim() ||
-      "Shop now",
+      "",
 
     buttonUrl:
       slide.buttonUrl?.trim() ||
       "/shop",
+
+    buttonBackgroundColor:
+      slide.buttonBackgroundColor ||
+      "#272727",
+
+    buttonTextColor:
+      slide.buttonTextColor ||
+      "#ffffff",
+
+    buttonCustomPosition:
+      slide.buttonCustomPosition === true,
+
+    buttonPositionX:
+      clampPercent(
+        slide.buttonPositionX,
+        15
+      ),
+
+    buttonPositionY:
+      clampPercent(
+        slide.buttonPositionY,
+        75
+      ),
 
     image:
       slide.image || "",
@@ -646,6 +725,170 @@ const TextInput = ({
     />
   </div>
 );
+
+// ========================================
+// COLOR INPUT
+// ========================================
+
+const ColorInput = ({
+  label,
+  value,
+  onChange,
+  fallback = "#ffffff",
+}) => {
+  const safeValue =
+    /^#[0-9a-fA-F]{6}$/.test(
+      String(value || "")
+    )
+      ? value
+      : fallback;
+
+  return (
+    <div>
+      <label
+        className="
+          mb-1.5
+          block
+          text-xs
+          font-black
+          uppercase
+          tracking-[0.08em]
+          text-gray-500
+        "
+      >
+        {label}
+      </label>
+
+      <div
+        className="
+          flex
+          items-center
+          gap-2
+          rounded-xl
+          border
+          border-gray-200
+          bg-white
+          p-2
+        "
+      >
+        <input
+          type="color"
+          value={safeValue}
+          onChange={(event) =>
+            onChange(
+              event.target.value
+            )
+          }
+          className="
+            h-9
+            w-12
+            cursor-pointer
+            rounded-lg
+            border-0
+            bg-transparent
+            p-0
+          "
+        />
+
+        <input
+          type="text"
+          value={value || ""}
+          onChange={(event) =>
+            onChange(
+              event.target.value
+            )
+          }
+          placeholder={fallback}
+          className="
+            min-w-0
+            flex-1
+            bg-transparent
+            px-2
+            py-2
+            font-mono
+            text-sm
+            text-[#172033]
+            outline-none
+          "
+        />
+      </div>
+    </div>
+  );
+};
+
+// ========================================
+// RANGE INPUT
+// ========================================
+
+const RangeInput = ({
+  label,
+  value,
+  onChange,
+}) => {
+  const safeValue =
+    clampPercent(value, 0);
+
+  return (
+    <div>
+      <div
+        className="
+          mb-2
+          flex
+          items-center
+          justify-between
+          gap-3
+        "
+      >
+        <label
+          className="
+            text-xs
+            font-black
+            uppercase
+            tracking-[0.08em]
+            text-gray-500
+          "
+        >
+          {label}
+        </label>
+
+        <span
+          className="
+            rounded-md
+            bg-[#f1f5eb]
+            px-2
+            py-1
+            text-[11px]
+            font-bold
+            text-[#6f9a37]
+          "
+        >
+          {Math.round(
+            safeValue
+          )}%
+        </span>
+      </div>
+
+      <input
+        type="range"
+        min="0"
+        max="100"
+        step="1"
+        value={safeValue}
+        onChange={(event) =>
+          onChange(
+            Number(
+              event.target.value
+            )
+          )
+        }
+        className="
+          w-full
+          accent-[#6f9a37]
+        "
+      />
+    </div>
+  );
+};
 
 // ========================================
 // TEXTAREA
@@ -1066,13 +1309,23 @@ const AdminWebsiteContentPage =
           ...current,
 
           normalizeHeroSlide({
+            smallTitle: "",
             title: "",
             subtitle: "",
             priceText: "",
-            buttonText:
-              "Shop now",
+            textColor:
+              "#ffffff",
+            buttonText: "",
             buttonUrl:
               "/shop",
+            buttonBackgroundColor:
+              "#272727",
+            buttonTextColor:
+              "#ffffff",
+            buttonCustomPosition:
+              false,
+            buttonPositionX: 15,
+            buttonPositionY: 75,
             isActive: true,
           }),
         ]
@@ -1634,20 +1887,6 @@ const AdminWebsiteContentPage =
 
     const validateBeforeSave =
       () => {
-        const invalidHero =
-          heroSlides.find(
-            (slide) =>
-              !slide.title?.trim()
-          );
-
-        if (invalidHero) {
-          setErrorMessage(
-            "Every Hero Slide must have a heading."
-          );
-
-          return false;
-        }
-
         const invalidTestimonial =
           testimonials.find(
             (testimonial) =>
@@ -2097,8 +2336,7 @@ const AdminWebsiteContentPage =
                   text-gray-500
                 "
               >
-                Main homepage
-                slider.
+                Main homepage slider. Overlay text and CTA are optional; use the banner image alone when it already contains the full design.
               </p>
             </div>
 
@@ -2325,6 +2563,129 @@ const AdminWebsiteContentPage =
                               </div>
                             )}
 
+                            {(slide.smallTitle ||
+                              slide.title ||
+                              slide.subtitle ||
+                              slide.priceText) && (
+                              <div
+                                className="
+                                  pointer-events-none
+                                  absolute
+                                  left-[8%]
+                                  top-1/2
+                                  z-10
+                                  max-w-[58%]
+                                  -translate-y-1/2
+                                  drop-shadow-[0_1px_3px_rgba(0,0,0,0.45)]
+                                "
+                                style={{
+                                  color:
+                                    slide.textColor ||
+                                    "#ffffff",
+                                }}
+                              >
+                                {slide.smallTitle && (
+                                  <div
+                                    className="
+                                      text-[7px]
+                                      font-bold
+                                      uppercase
+                                      tracking-[0.12em]
+                                    "
+                                  >
+                                    {slide.smallTitle}
+                                  </div>
+                                )}
+
+                                {slide.title && (
+                                  <div
+                                    className="
+                                      mt-1
+                                      text-[16px]
+                                      font-black
+                                      leading-[1.05]
+                                    "
+                                  >
+                                    {slide.title}
+                                  </div>
+                                )}
+
+                                {slide.subtitle && (
+                                  <div
+                                    className="
+                                      mt-1
+                                      text-[7px]
+                                      leading-3
+                                    "
+                                  >
+                                    {slide.subtitle}
+                                  </div>
+                                )}
+
+                                {slide.priceText && (
+                                  <div
+                                    className="
+                                      mt-1
+                                      text-[8px]
+                                      font-bold
+                                    "
+                                  >
+                                    {slide.priceText}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {slide.buttonText && (
+                              <div
+                                className={
+                                  slide.buttonCustomPosition
+                                    ? "absolute z-20"
+                                    : "absolute bottom-[10%] left-[8%] z-20"
+                                }
+                                style={
+                                  slide.buttonCustomPosition
+                                    ? {
+                                        left: `${clampPercent(
+                                          slide.buttonPositionX,
+                                          15
+                                        )}%`,
+                                        top: `${clampPercent(
+                                          slide.buttonPositionY,
+                                          75
+                                        )}%`,
+                                        transform:
+                                          "translate(-50%, -50%)",
+                                      }
+                                    : undefined
+                                }
+                              >
+                                <span
+                                  className="
+                                    inline-flex
+                                    items-center
+                                    rounded-full
+                                    px-3
+                                    py-1.5
+                                    text-[7px]
+                                    font-black
+                                    uppercase
+                                    shadow-sm
+                                  "
+                                  style={{
+                                    backgroundColor:
+                                      slide.buttonBackgroundColor ||
+                                      "#272727",
+                                    color:
+                                      slide.buttonTextColor ||
+                                      "#ffffff",
+                                  }}
+                                >
+                                  {slide.buttonText}
+                                </span>
+                              </div>
+                            )}
+
                             {isUploading && (
                               <div
                                 className="
@@ -2432,8 +2793,42 @@ const AdminWebsiteContentPage =
                             space-y-4
                           "
                         >
+                          <div
+                            className="
+                              rounded-2xl
+                              border
+                              border-[#dfe8d3]
+                              bg-[#f8fbf4]
+                              px-4
+                              py-3
+                              text-xs
+                              leading-5
+                              text-[#62704f]
+                            "
+                          >
+                            Heading, subtitle, offer text and button are all optional. If the banner image already contains its own text or CTA, simply leave those fields blank.
+                          </div>
+
                           <TextInput
-                            label="Heading"
+                            label="Small Title (Optional)"
+                            value={
+                              slide.smallTitle
+                            }
+                            onChange={(
+                              value
+                            ) =>
+                              updateCollectionItem(
+                                "hero",
+                                slide._clientId,
+                                "smallTitle",
+                                value
+                              )
+                            }
+                            placeholder="Leave blank if text is already in the banner"
+                          />
+
+                          <TextInput
+                            label="Heading (Optional)"
                             value={
                               slide.title
                             }
@@ -2447,10 +2842,11 @@ const AdminWebsiteContentPage =
                                 value
                               )
                             }
+                            placeholder="Leave blank to show no heading"
                           />
 
                           <TextArea
-                            label="Subtitle"
+                            label="Subtitle (Optional)"
                             value={
                               slide.subtitle
                             }
@@ -2464,6 +2860,7 @@ const AdminWebsiteContentPage =
                                 value
                               )
                             }
+                            placeholder="Leave blank to show no subtitle"
                             rows={3}
                           />
 
@@ -2476,7 +2873,7 @@ const AdminWebsiteContentPage =
                             "
                           >
                             <TextInput
-                              label="Price / Offer Text"
+                              label="Price / Offer Text (Optional)"
                               value={
                                 slide.priceText
                               }
@@ -2490,43 +2887,254 @@ const AdminWebsiteContentPage =
                                   value
                                 )
                               }
+                              placeholder="Optional"
                             />
 
-                            <TextInput
-                              label="Button Text"
+                            <ColorInput
+                              label="Hero Text Color"
                               value={
-                                slide.buttonText
+                                slide.textColor
                               }
+                              fallback="#ffffff"
                               onChange={(
                                 value
                               ) =>
                                 updateCollectionItem(
                                   "hero",
                                   slide._clientId,
-                                  "buttonText",
+                                  "textColor",
                                   value
                                 )
                               }
                             />
                           </div>
 
-                          <TextInput
-                            label="Button Link"
-                            value={
-                              slide.buttonUrl
-                            }
-                            onChange={(
-                              value
-                            ) =>
-                              updateCollectionItem(
-                                "hero",
-                                slide._clientId,
-                                "buttonUrl",
-                                value
-                              )
-                            }
-                            mono
-                          />
+                          <div
+                            className="
+                              rounded-2xl
+                              border
+                              border-gray-200
+                              bg-gray-50/70
+                              p-4
+                            "
+                          >
+                            <div
+                              className="
+                                mb-4
+                                flex
+                                flex-wrap
+                                items-center
+                                justify-between
+                                gap-3
+                              "
+                            >
+                              <div>
+                                <div
+                                  className="
+                                    text-sm
+                                    font-black
+                                    text-[#172033]
+                                  "
+                                >
+                                  Hero Button
+                                </div>
+
+                                <div
+                                  className="
+                                    mt-1
+                                    text-xs
+                                    text-gray-500
+                                  "
+                                >
+                                  Leave Button Text blank when no CTA is needed.
+                                </div>
+                              </div>
+                            </div>
+
+                            <div
+                              className="
+                                grid
+                                grid-cols-1
+                                gap-4
+                                md:grid-cols-2
+                              "
+                            >
+                              <TextInput
+                                label="Button Text (Optional)"
+                                value={
+                                  slide.buttonText
+                                }
+                                onChange={(
+                                  value
+                                ) =>
+                                  updateCollectionItem(
+                                    "hero",
+                                    slide._clientId,
+                                    "buttonText",
+                                    value
+                                  )
+                                }
+                                placeholder="e.g. Shop Now"
+                              />
+
+                              <TextInput
+                                label="Button Link"
+                                value={
+                                  slide.buttonUrl
+                                }
+                                onChange={(
+                                  value
+                                ) =>
+                                  updateCollectionItem(
+                                    "hero",
+                                    slide._clientId,
+                                    "buttonUrl",
+                                    value
+                                  )
+                                }
+                                placeholder="/shop"
+                                mono
+                              />
+
+                              <ColorInput
+                                label="Button Background"
+                                value={
+                                  slide.buttonBackgroundColor
+                                }
+                                fallback="#272727"
+                                onChange={(
+                                  value
+                                ) =>
+                                  updateCollectionItem(
+                                    "hero",
+                                    slide._clientId,
+                                    "buttonBackgroundColor",
+                                    value
+                                  )
+                                }
+                              />
+
+                              <ColorInput
+                                label="Button Text Color"
+                                value={
+                                  slide.buttonTextColor
+                                }
+                                fallback="#ffffff"
+                                onChange={(
+                                  value
+                                ) =>
+                                  updateCollectionItem(
+                                    "hero",
+                                    slide._clientId,
+                                    "buttonTextColor",
+                                    value
+                                  )
+                                }
+                              />
+                            </div>
+
+                            <div
+                              className="
+                                mt-5
+                                flex
+                                items-center
+                                justify-between
+                                gap-4
+                                rounded-xl
+                                border
+                                border-gray-200
+                                bg-white
+                                px-4
+                                py-3
+                              "
+                            >
+                              <div>
+                                <div
+                                  className="
+                                    text-xs
+                                    font-black
+                                    uppercase
+                                    tracking-[0.08em]
+                                    text-gray-600
+                                  "
+                                >
+                                  Custom Button Position
+                                </div>
+
+                                <div
+                                  className="
+                                    mt-1
+                                    text-xs
+                                    text-gray-400
+                                  "
+                                >
+                                  Turn on to place the button anywhere over the banner.
+                                </div>
+                              </div>
+
+                              <Toggle
+                                checked={
+                                  slide.buttonCustomPosition
+                                }
+                                onChange={(
+                                  value
+                                ) =>
+                                  updateCollectionItem(
+                                    "hero",
+                                    slide._clientId,
+                                    "buttonCustomPosition",
+                                    value
+                                  )
+                                }
+                              />
+                            </div>
+
+                            {slide.buttonCustomPosition && (
+                              <div
+                                className="
+                                  mt-5
+                                  grid
+                                  grid-cols-1
+                                  gap-5
+                                  md:grid-cols-2
+                                "
+                              >
+                                <RangeInput
+                                  label="Horizontal Position (X)"
+                                  value={
+                                    slide.buttonPositionX
+                                  }
+                                  onChange={(
+                                    value
+                                  ) =>
+                                    updateCollectionItem(
+                                      "hero",
+                                      slide._clientId,
+                                      "buttonPositionX",
+                                      value
+                                    )
+                                  }
+                                />
+
+                                <RangeInput
+                                  label="Vertical Position (Y)"
+                                  value={
+                                    slide.buttonPositionY
+                                  }
+                                  onChange={(
+                                    value
+                                  ) =>
+                                    updateCollectionItem(
+                                      "hero",
+                                      slide._clientId,
+                                      "buttonPositionY",
+                                      value
+                                    )
+                                  }
+                                />
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>

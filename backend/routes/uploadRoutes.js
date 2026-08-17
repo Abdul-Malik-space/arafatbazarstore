@@ -5,6 +5,7 @@ const upload = require(
 );
 
 const {
+  getUploadedImages,
   uploadSingleImage,
   uploadMultipleImages,
   deleteUploadedImage,
@@ -22,7 +23,16 @@ const {
 const router = express.Router();
 
 // ========================================
-// PROTECT ALL UPLOAD ROUTES
+// PROTECT ALL MEDIA / UPLOAD ROUTES
+// ========================================
+//
+// All routes below require an
+// authenticated admin account.
+//
+// /api/uploads
+// /api/uploads/single
+// /api/uploads/multiple
+// /api/uploads/:filename
 // ========================================
 
 router.use(
@@ -31,11 +41,35 @@ router.use(
 );
 
 // ========================================
-// SINGLE IMAGE
+// GET MEDIA LIBRARY
+//
+// GET /api/uploads
+//
+// Optional query parameters:
+//
+// ?limit=30
+// ?cursor=CLOUDINARY_CURSOR
+//
+// Returns:
+// - Uploaded images
+// - Image metadata
+// - Pagination cursor
+// ========================================
+
+router.get(
+  "/",
+  getUploadedImages
+);
+
+// ========================================
+// SINGLE IMAGE UPLOAD
 //
 // POST /api/uploads/single
 //
-// form-data:
+// Content-Type:
+// multipart/form-data
+//
+// Field:
 // image = file
 // ========================================
 
@@ -46,19 +80,26 @@ router.post(
 );
 
 // ========================================
-// MULTIPLE IMAGES
+// MULTIPLE IMAGE UPLOAD
 //
 // POST /api/uploads/multiple
 //
-// form-data:
+// Content-Type:
+// multipart/form-data
+//
+// Field:
 // images = files
 //
-// Maximum: 10
+// Maximum:
+// 10 images per request
 // ========================================
 
 router.post(
   "/multiple",
-  upload.array("images", 10),
+  upload.array(
+    "images",
+    10
+  ),
   uploadMultipleImages
 );
 
@@ -66,6 +107,18 @@ router.post(
 // DELETE IMAGE
 //
 // DELETE /api/uploads/:filename
+//
+// IMPORTANT:
+// Frontend must encode Cloudinary
+// publicId using encodeURIComponent()
+//
+// Example:
+//
+// store-uploads/image-123
+//
+// becomes:
+//
+// store-uploads%2Fimage-123
 // ========================================
 
 router.delete(

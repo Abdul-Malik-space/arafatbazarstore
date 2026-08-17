@@ -11,10 +11,10 @@
 // GET /api/page-content/system/:systemKey
 // ========================================
 
-const API_BASE_URL =
+const VITE_API_URL =
   (
     import.meta.env
-      .VITE_API_BASE_URL ||
+      .VITE_API_URL ||
     "http://localhost:5000/api"
   ).replace(/\/+$/, "");
 
@@ -23,7 +23,7 @@ const API_BASE_URL =
 // ========================================
 
 const PAGE_CONTENT_ENDPOINT =
-  `${API_BASE_URL}/page-content`;
+  `${VITE_API_URL}/page-content`;
 
 // ========================================
 // SAFE JSON PARSER
@@ -377,6 +377,6 @@ export const isExternalPageLink =
 // ========================================
 
 export {
-  API_BASE_URL,
+  VITE_API_URL,
   PAGE_CONTENT_ENDPOINT,
 };

@@ -1,5 +1,5 @@
 // ========================================
-// ADMIN UPLOADS SERVICE
+// ADMIN UPLOADS / MEDIA SERVICE
 // ========================================
 
 const API_BASE_URL =
@@ -26,22 +26,17 @@ const normalizeFiles = (files) => {
     return [];
   }
 
-  if (
-    Array.isArray(files)
-  ) {
-    return files.filter(
-      (file) => isFile(file)
+  if (Array.isArray(files)) {
+    return files.filter((file) =>
+      isFile(file)
     );
   }
 
   if (
-    typeof FileList !==
-      "undefined" &&
+    typeof FileList !== "undefined" &&
     files instanceof FileList
   ) {
-    return Array.from(
-      files
-    ).filter(
+    return Array.from(files).filter(
       (file) => isFile(file)
     );
   }
@@ -54,7 +49,148 @@ const normalizeFiles = (files) => {
 };
 
 // ========================================
-// ADMIN UPLOAD REQUEST
+// MEDIA ITEM NORMALIZER
+// ========================================
+
+export const normalizeAdminMediaItem = (
+  item
+) => {
+  if (!item) {
+    return null;
+  }
+
+  if (typeof item === "string") {
+    return {
+      _id: item,
+      id: item,
+
+      publicId: item,
+      filename: item,
+
+      originalName:
+        item.split("/").pop() ||
+        item,
+
+      url: item,
+      path: item,
+      secureUrl: item,
+
+      width: 0,
+      height: 0,
+
+      size: 0,
+      bytes: 0,
+
+      format: "",
+
+      createdAt: null,
+    };
+  }
+
+  if (typeof item !== "object") {
+    return null;
+  }
+
+  const url =
+    item.url ||
+    item.path ||
+    item.secureUrl ||
+    item.secure_url ||
+    item.location ||
+    "";
+
+  const publicId =
+    item.publicId ||
+    item.public_id ||
+    item.filename ||
+    item.id ||
+    item._id ||
+    "";
+
+  const filename =
+    item.filename ||
+    publicId ||
+    "";
+
+  return {
+    ...item,
+
+    _id:
+      item._id ||
+      publicId ||
+      url,
+
+    id:
+      item.id ||
+      publicId ||
+      url,
+
+    publicId,
+
+    filename,
+
+    originalName:
+      item.originalName ||
+      item.original_name ||
+      item.name ||
+      item.displayName ||
+      item.display_name ||
+      (publicId
+        ? publicId
+            .split("/")
+            .pop()
+        : "") ||
+      (url
+        ? url
+            .split("/")
+            .pop()
+        : "") ||
+      "Image",
+
+    url,
+
+    path:
+      item.path ||
+      url,
+
+    secureUrl:
+      item.secureUrl ||
+      item.secure_url ||
+      url,
+
+    width:
+      Number(item.width) ||
+      0,
+
+    height:
+      Number(item.height) ||
+      0,
+
+    size:
+      Number(
+        item.size ??
+          item.bytes
+      ) || 0,
+
+    bytes:
+      Number(
+        item.bytes ??
+          item.size
+      ) || 0,
+
+    format:
+      item.format ||
+      "",
+
+    createdAt:
+      item.createdAt ||
+      item.created_at ||
+      null,
+  };
+};
+
+// ========================================
+// ADMIN MEDIA REQUEST
 // ========================================
 
 const adminUploadRequest =
@@ -74,14 +210,22 @@ const adminUploadRequest =
           {
             ...restOptions,
 
-            // HttpOnly admin cookie
+            // =================================
+            // ADMIN AUTH COOKIE
+            // =================================
+
             credentials:
               "include",
 
-            // IMPORTANT:
-            // FormData upload میں
-            // Content-Type manually set
-            // نہیں کرنا.
+            // =================================
+            // IMPORTANT
+            //
+            // FormData کے لیے Content-Type
+            // manually set نہیں کرنا۔
+            // Browser خود multipart boundary
+            // بنائے گا۔
+            // =================================
+
             headers: {
               Accept:
                 "application/json",
@@ -91,9 +235,9 @@ const adminUploadRequest =
           }
         );
 
-      // ==================================
-      // RESPONSE
-      // ==================================
+      // =================================
+      // RESPONSE PARSING
+      // =================================
 
       let data = null;
 
@@ -128,22 +272,23 @@ const adminUploadRequest =
         }
       }
 
-      // ==================================
-      // ERROR
-      // ==================================
+      // =================================
+      // ERROR RESPONSE
+      // =================================
 
       if (!response.ok) {
         const error =
           new Error(
             data?.message ||
-              "Upload request failed."
+              "Media request failed."
           );
 
         error.status =
           response.status;
 
         error.code =
-          data?.code || null;
+          data?.code ||
+          null;
 
         error.data =
           data;
@@ -171,6 +316,128 @@ const adminUploadRequest =
   };
 
 // ========================================
+// GET MEDIA LIBRARY
+//
+// GET /api/uploads
+//
+// Query:
+// limit=30
+// cursor=<cloudinary cursor>
+// ========================================
+
+export const getAdminMediaLibrary =
+  async ({
+    limit = 30,
+    cursor = "",
+  } = {}) => {
+    const params =
+      new URLSearchParams();
+
+    const safeLimit =
+      Math.min(
+        100,
+        Math.max(
+          1,
+          Number.parseInt(
+            limit,
+            10
+          ) || 30
+        )
+      );
+
+    params.set(
+      "limit",
+      String(safeLimit)
+    );
+
+    const safeCursor =
+      String(
+        cursor || ""
+      ).trim();
+
+    if (safeCursor) {
+      params.set(
+        "cursor",
+        safeCursor
+      );
+    }
+
+    const response =
+      await adminUploadRequest(
+        `/uploads?${params.toString()}`,
+        {
+          method: "GET",
+        }
+      );
+
+    const rawImages =
+      response?.images ||
+      response?.files ||
+      response?.data
+        ?.images ||
+      response?.data
+        ?.files ||
+      [];
+
+    const images =
+      Array.isArray(
+        rawImages
+      )
+        ? rawImages
+            .map(
+              normalizeAdminMediaItem
+            )
+            .filter(Boolean)
+        : [];
+
+    const nextCursor =
+      response?.pagination
+        ?.nextCursor ||
+      response?.nextCursor ||
+      response?.next_cursor ||
+      null;
+
+    const hasMore =
+      response?.pagination
+        ?.hasMore !==
+      undefined
+        ? Boolean(
+            response
+              .pagination
+              .hasMore
+          )
+        : Boolean(
+            nextCursor
+          );
+
+    return {
+      ...response,
+
+      images,
+
+      files:
+        images,
+
+      count:
+        Number(
+          response?.count
+        ) ||
+        images.length,
+
+      pagination: {
+        limit:
+          safeLimit,
+
+        hasMore,
+
+        nextCursor,
+      },
+
+      nextCursor,
+    };
+  };
+
+// ========================================
 // SINGLE IMAGE UPLOAD
 //
 // POST /api/uploads/single
@@ -195,13 +462,32 @@ export const uploadAdminSingleImage =
       file
     );
 
-    return adminUploadRequest(
-      "/uploads/single",
-      {
-        method: "POST",
-        body: formData,
-      }
-    );
+    const response =
+      await adminUploadRequest(
+        "/uploads/single",
+        {
+          method: "POST",
+
+          body:
+            formData,
+        }
+      );
+
+    const image =
+      extractSingleUploadedImage(
+        response
+      );
+
+    return {
+      ...response,
+
+      ...(image
+        ? {
+            image,
+            file: image,
+          }
+        : {}),
+    };
   };
 
 // ========================================
@@ -212,14 +498,16 @@ export const uploadAdminSingleImage =
 // field:
 // images
 //
-// backend maximum:
+// Maximum:
 // 10 images
 // ========================================
 
 export const uploadAdminMultipleImages =
   async (files) => {
     const normalizedFiles =
-      normalizeFiles(files);
+      normalizeFiles(
+        files
+      );
 
     if (
       normalizedFiles.length ===
@@ -251,40 +539,263 @@ export const uploadAdminMultipleImages =
       }
     );
 
-    return adminUploadRequest(
-      "/uploads/multiple",
-      {
-        method: "POST",
-        body: formData,
+    const response =
+      await adminUploadRequest(
+        "/uploads/multiple",
+        {
+          method: "POST",
+
+          body:
+            formData,
+        }
+      );
+
+    const images =
+      extractMultipleUploadedImages(
+        response
+      );
+
+    return {
+      ...response,
+
+      images,
+
+      files:
+        images,
+
+      count:
+        images.length,
+    };
+  };
+
+// ========================================
+// CLOUDINARY PUBLIC ID FROM URL
+// ========================================
+
+const getCloudinaryPublicIdFromUrl =
+  (url) => {
+    try {
+      const parsedUrl =
+        new URL(url);
+
+      const parts =
+        parsedUrl.pathname
+          .split("/")
+          .filter(Boolean);
+
+      const uploadIndex =
+        parts.indexOf(
+          "upload"
+        );
+
+      if (
+        uploadIndex === -1
+      ) {
+        return "";
       }
-    );
+
+      let cloudinaryParts =
+        parts.slice(
+          uploadIndex + 1
+        );
+
+      // =================================
+      // Example:
+      //
+      // /image/upload/
+      // v123456/
+      // store-uploads/
+      // image.jpg
+      //
+      // Public ID:
+      // store-uploads/image
+      // =================================
+
+      const versionIndex =
+        cloudinaryParts
+          .findIndex(
+            (part) =>
+              /^v\d+$/.test(
+                part
+              )
+          );
+
+      if (
+        versionIndex >= 0
+      ) {
+        cloudinaryParts =
+          cloudinaryParts.slice(
+            versionIndex +
+              1
+          );
+      }
+
+      if (
+        cloudinaryParts.length ===
+        0
+      ) {
+        return "";
+      }
+
+      const lastIndex =
+        cloudinaryParts.length -
+        1;
+
+      cloudinaryParts[
+        lastIndex
+      ] =
+        cloudinaryParts[
+          lastIndex
+        ].replace(
+          /\.[^.]+$/,
+          ""
+        );
+
+      return decodeURIComponent(
+        cloudinaryParts.join(
+          "/"
+        )
+      );
+    } catch {
+      return "";
+    }
+  };
+
+// ========================================
+// GET MEDIA IDENTIFIER
+//
+// Supports:
+//
+// media object
+// Cloudinary public ID
+// Cloudinary URL
+// legacy filename
+// ========================================
+
+export const getAdminMediaIdentifier =
+  (value) => {
+    if (!value) {
+      return "";
+    }
+
+    // =================================
+    // OBJECT
+    // =================================
+
+    if (
+      typeof value ===
+      "object"
+    ) {
+      const directId =
+        value.publicId ||
+        value.public_id ||
+        value.filename ||
+        value.id ||
+        value._id ||
+        "";
+
+      if (directId) {
+        return String(
+          directId
+        ).trim();
+      }
+
+      return getAdminMediaIdentifier(
+        value.url ||
+          value.path ||
+          value.secureUrl ||
+          value.secure_url ||
+          ""
+      );
+    }
+
+    // =================================
+    // STRING
+    // =================================
+
+    const stringValue =
+      String(
+        value
+      ).trim();
+
+    if (!stringValue) {
+      return "";
+    }
+
+    // =================================
+    // URL
+    // =================================
+
+    if (
+      stringValue.startsWith(
+        "http://"
+      ) ||
+      stringValue.startsWith(
+        "https://"
+      )
+    ) {
+      const cloudinaryId =
+        getCloudinaryPublicIdFromUrl(
+          stringValue
+        );
+
+      if (cloudinaryId) {
+        return cloudinaryId;
+      }
+
+      return getUploadFilenameFromUrl(
+        stringValue
+      );
+    }
+
+    // Already public ID / filename
+    return stringValue;
   };
 
 // ========================================
 // DELETE IMAGE
 //
 // DELETE /api/uploads/:filename
+//
+// Accepts:
+//
+// deleteAdminImage(mediaObject)
+//
+// OR
+//
+// deleteAdminImage(
+//   "store-uploads/image123"
+// )
+//
+// OR
+//
+// deleteAdminImage(
+//   "https://res.cloudinary.com/..."
+// )
 // ========================================
 
 export const deleteAdminImage =
-  async (filename) => {
-    const safeFilename =
-      String(
-        filename || ""
-      ).trim();
+  async (
+    imageOrIdentifier
+  ) => {
+    const identifier =
+      getAdminMediaIdentifier(
+        imageOrIdentifier
+      );
 
-    if (!safeFilename) {
+    if (!identifier) {
       throw new Error(
-        "Image filename is required."
+        "Image identifier is required."
       );
     }
 
     return adminUploadRequest(
       `/uploads/${encodeURIComponent(
-        safeFilename
+        identifier
       )}`,
       {
-        method: "DELETE",
+        method:
+          "DELETE",
       }
     );
   };
@@ -296,16 +807,15 @@ export const deleteAdminImage =
 export const isAdminUploadAuthError =
   (error) => {
     return (
-      error?.status === 401 ||
-      error?.status === 403
+      error?.status ===
+        401 ||
+      error?.status ===
+        403
     );
   };
 
 // ========================================
-// EXTRACT SINGLE IMAGE URL
-//
-// Different controller response shapes
-// safely support کرتا ہے.
+// EXTRACT SINGLE UPLOADED IMAGE
 // ========================================
 
 export const extractSingleUploadedImage =
@@ -313,56 +823,21 @@ export const extractSingleUploadedImage =
     const candidate =
       response?.image ||
       response?.file ||
-      response?.data?.image ||
-      response?.data?.file ||
+      response?.data
+        ?.image ||
+      response?.data
+        ?.file ||
       response?.url ||
       response?.path ||
       null;
 
-    if (
-      typeof candidate ===
-      "string"
-    ) {
-      return {
-        url: candidate,
-        filename:
-          candidate
-            .split("/")
-            .pop() || "",
-      };
-    }
-
-    if (
-      candidate &&
-      typeof candidate ===
-        "object"
-    ) {
-      const url =
-        candidate.url ||
-        candidate.path ||
-        candidate.location ||
-        "";
-
-      const filename =
-        candidate.filename ||
-        candidate.name ||
-        url
-          .split("/")
-          .pop() ||
-        "";
-
-      return {
-        ...candidate,
-        url,
-        filename,
-      };
-    }
-
-    return null;
+    return normalizeAdminMediaItem(
+      candidate
+    );
   };
 
 // ========================================
-// EXTRACT MULTIPLE IMAGES
+// EXTRACT MULTIPLE UPLOADED IMAGES
 // ========================================
 
 export const extractMultipleUploadedImages =
@@ -370,8 +845,10 @@ export const extractMultipleUploadedImages =
     const candidates =
       response?.images ||
       response?.files ||
-      response?.data?.images ||
-      response?.data?.files ||
+      response?.data
+        ?.images ||
+      response?.data
+        ?.files ||
       [];
 
     if (
@@ -383,62 +860,61 @@ export const extractMultipleUploadedImages =
     }
 
     return candidates
-      .map((item) => {
-        if (
-          typeof item ===
-          "string"
-        ) {
-          return {
-            url: item,
-
-            filename:
-              item
-                .split("/")
-                .pop() || "",
-          };
-        }
-
-        if (
-          item &&
-          typeof item ===
-            "object"
-        ) {
-          const url =
-            item.url ||
-            item.path ||
-            item.location ||
-            "";
-
-          return {
-            ...item,
-
-            url,
-
-            filename:
-              item.filename ||
-              item.name ||
-              url
-                .split("/")
-                .pop() ||
-              "",
-          };
-        }
-
-        return null;
-      })
+      .map(
+        normalizeAdminMediaItem
+      )
       .filter(Boolean);
   };
 
 // ========================================
-// GET FILENAME FROM URL
+// EXTRACT MEDIA LIBRARY
+// ========================================
+
+export const extractAdminMediaLibrary =
+  (response) => {
+    const candidates =
+      response?.images ||
+      response?.files ||
+      response?.data
+        ?.images ||
+      response?.data
+        ?.files ||
+      [];
+
+    if (
+      !Array.isArray(
+        candidates
+      )
+    ) {
+      return [];
+    }
+
+    return candidates
+      .map(
+        normalizeAdminMediaItem
+      )
+      .filter(Boolean);
+  };
+
+// ========================================
+// GET FILENAME / PUBLIC ID FROM URL
 //
-// Example:
+// Cloudinary:
 //
-// /uploads/product.jpg
-// http://localhost:5000/uploads/product.jpg
+// https://.../upload/v123/
+// store-uploads/image.jpg
 //
-// دونوں صورتوں میں:
-// product.jpg
+// returns:
+//
+// store-uploads/image
+//
+// Legacy/local:
+//
+// /uploads/image.jpg
+//
+// returns:
+//
+// image.jpg
 // ========================================
 
 export const getUploadFilenameFromUrl =
@@ -447,18 +923,52 @@ export const getUploadFilenameFromUrl =
       return "";
     }
 
+    const rawValue =
+      String(
+        url
+      ).trim();
+
+    if (!rawValue) {
+      return "";
+    }
+
+    // =================================
+    // CLOUDINARY URL
+    // =================================
+
+    if (
+      rawValue.startsWith(
+        "http://"
+      ) ||
+      rawValue.startsWith(
+        "https://"
+      )
+    ) {
+      const cloudinaryId =
+        getCloudinaryPublicIdFromUrl(
+          rawValue
+        );
+
+      if (cloudinaryId) {
+        return cloudinaryId;
+      }
+    }
+
+    // =================================
+    // LEGACY URL
+    // =================================
+
     try {
       const cleanUrl =
-        String(url)
+        rawValue
           .split("?")[0]
           .split("#")[0];
 
-      return (
-        decodeURIComponent(
-          cleanUrl
-            .split("/")
-            .pop() || ""
-        )
+      return decodeURIComponent(
+        cleanUrl
+          .split("/")
+          .pop() ||
+          ""
       );
     } catch {
       return "";
@@ -466,7 +976,7 @@ export const getUploadFilenameFromUrl =
   };
 
 // ========================================
-// IMAGE VALIDATION HELPER
+// IMAGE VALIDATION
 // ========================================
 
 export const validateAdminImageFile =
@@ -479,6 +989,7 @@ export const validateAdminImageFile =
     if (!isFile(file)) {
       return {
         valid: false,
+
         message:
           "Please select a valid file.",
       };
@@ -491,6 +1002,7 @@ export const validateAdminImageFile =
     ) {
       return {
         valid: false,
+
         message:
           "Only image files are allowed.",
       };
@@ -507,7 +1019,9 @@ export const validateAdminImageFile =
     ) {
       return {
         valid: false,
-        message: `Image size must be ${maxSizeMB} MB or smaller.`,
+
+        message:
+          `Image size must be ${maxSizeMB} MB or smaller.`,
       };
     }
 
@@ -522,12 +1036,27 @@ export const validateAdminImageFile =
 // ========================================
 
 export default {
+  getAdminMediaLibrary,
+
   uploadAdminSingleImage,
+
   uploadAdminMultipleImages,
+
   deleteAdminImage,
+
   isAdminUploadAuthError,
+
+  normalizeAdminMediaItem,
+
   extractSingleUploadedImage,
+
   extractMultipleUploadedImages,
+
+  extractAdminMediaLibrary,
+
+  getAdminMediaIdentifier,
+
   getUploadFilenameFromUrl,
+
   validateAdminImageFile,
 };

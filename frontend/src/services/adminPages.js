@@ -15,10 +15,10 @@
 // HttpOnly cookie + credentials include
 // ========================================
 
-const API_BASE_URL =
+const VITE_API_URL =
   (
     import.meta.env
-      .VITE_API_BASE_URL ||
+      .VITE_API_URL ||
     "http://localhost:5000/api"
   ).replace(/\/+$/, "");
 
@@ -27,7 +27,7 @@ const API_BASE_URL =
 // ========================================
 
 const PAGES_ENDPOINT =
-  `${API_BASE_URL}/page-content`;
+  `${VITE_API_URL}/page-content`;
 
 // ========================================
 // SAFE JSON PARSER
@@ -917,6 +917,6 @@ export const buildAdminPagePayload =
 // ========================================
 
 export {
-  API_BASE_URL,
+  VITE_API_URL,
   PAGES_ENDPOINT,
 };

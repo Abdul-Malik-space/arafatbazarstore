@@ -55,6 +55,12 @@ import AdminFooterPage from "./pages/admin/AdminFooterPage";
 import AdminStoreSettingsPage from "./pages/admin/AdminStoreSettingsPage";
 
 // ========================================
+// MEDIA PAGE
+// ========================================
+
+import AdminMediaPage from "./pages/admin/AdminMediaPage";
+
+// ========================================
 // CUSTOMER PAGES
 // ========================================
 
@@ -418,7 +424,6 @@ function App() {
               }
             />
 
-
             <Route
               path="orders/:id/invoice"
               element={
@@ -478,16 +483,13 @@ function App() {
             />
 
             {/* =============================
-                MEDIA
+                MEDIA LIBRARY
             ============================= */}
 
             <Route
               path="media"
               element={
-                <Navigate
-                  to="/admin/dashboard"
-                  replace
-                />
+                <AdminMediaPage />
               }
             />
 

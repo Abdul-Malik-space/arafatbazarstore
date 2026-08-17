@@ -26,6 +26,7 @@ import {
   getCategories,
   getDealProducts,
   getImageUrl,
+  getProducts,
   getTrendingProducts,
 } from "../services/api";
 
@@ -83,6 +84,161 @@ const getDiscount = (product) => {
     ((price - sale) / price) *
       100
   );
+};
+
+// ========================================
+// CATEGORY PRODUCT COUNT
+// ========================================
+// Backend may expose the count using any of
+// these compatible field names. Keep zero as
+// a valid value and never fall back because
+// of JavaScript's falsy-value behaviour.
+
+const getCategoryProductCount = (
+  category
+) => {
+  const candidates = [
+    category?.productCount,
+    category?.productsCount,
+    category?.totalProducts,
+    category?.directProductCount,
+    category?.count,
+  ];
+
+  for (const value of candidates) {
+    if (
+      value === null ||
+      value === undefined ||
+      value === ""
+    ) {
+      continue;
+    }
+
+    const count = Number(value);
+
+    if (
+      Number.isFinite(count) &&
+      count >= 0
+    ) {
+      return count;
+    }
+  }
+
+  return 0;
+};
+
+// ========================================
+// CATEGORY COUNT FALLBACK
+// ========================================
+// The current development frontend is configured to use
+// https://arafatbazar.pk/api. If that deployed category API
+// has not yet been updated with productCount, we obtain the
+// authoritative total from the existing products endpoint.
+//
+// We only make a fallback request for categories whose API
+// count is zero/missing. The products endpoint already returns
+// `total`, so limit=1 keeps the payload very small.
+
+const hydrateCategoryProductCounts = async (
+  sourceCategories = []
+) => {
+  if (
+    !Array.isArray(sourceCategories) ||
+    sourceCategories.length === 0
+  ) {
+    return [];
+  }
+
+  const hydrated =
+    sourceCategories.map((category) => ({
+      ...category,
+    }));
+
+  let cursor = 0;
+
+  const worker = async () => {
+    while (cursor < sourceCategories.length) {
+      const index = cursor;
+      cursor += 1;
+
+      const category =
+        sourceCategories[index];
+
+      const existingCount =
+        getCategoryProductCount(
+          category
+        );
+
+      // Keep a positive backend count.
+      if (existingCount > 0) {
+        continue;
+      }
+
+      if (!category?.slug) {
+        continue;
+      }
+
+      try {
+        const response =
+          await getProducts({
+            category:
+              category.slug,
+            page: 1,
+            limit: 1,
+            isActive: true,
+          });
+
+        const responseTotal =
+          Number(response?.total);
+
+        const responseCount =
+          Number(response?.count);
+
+        const total =
+          Number.isFinite(
+            responseTotal
+          ) && responseTotal >= 0
+            ? responseTotal
+            : Number.isFinite(
+                  responseCount
+                ) &&
+                responseCount >= 0
+              ? responseCount
+              : existingCount;
+
+        hydrated[index] = {
+          ...category,
+          productCount: total,
+          productsCount: total,
+          totalProducts: total,
+        };
+      } catch (error) {
+        console.warn(
+          `Unable to load product count for category: ${
+            category?.name ||
+            category?.slug ||
+            "Unknown"
+          }`,
+          error
+        );
+      }
+    }
+  };
+
+  const workerCount =
+    Math.min(
+      6,
+      sourceCategories.length
+    );
+
+  await Promise.all(
+    Array.from(
+      { length: workerCount },
+      () => worker()
+    )
+  );
+
+  return hydrated;
 };
 
 // ========================================
@@ -493,10 +649,28 @@ const HomePage = () => {
             categoryResult.status ===
             "fulfilled"
           ) {
-            setCategories(
+            const loadedCategories =
               categoryResult.value
-                ?.categories || []
+                ?.categories || [];
+
+            // Render immediately, then replace zero/missing
+            // counts with totals from /products. This also
+            // works while the deployed /categories/active
+            // endpoint is still on the older backend version.
+            setCategories(
+              loadedCategories
             );
+
+            const categoriesWithCounts =
+              await hydrateCategoryProductCounts(
+                loadedCategories
+              );
+
+            if (!cancelled) {
+              setCategories(
+                categoriesWithCounts
+              );
+            }
           }
 
           if (
@@ -566,6 +740,7 @@ const HomePage = () => {
       return [
         {
           _id: "fallback-hero",
+
           title:
             settings.storeName ||
             "General Store",
@@ -693,221 +868,222 @@ const HomePage = () => {
           1. HERO SLIDER
           Exact Index17 hierarchy
       ================================= */}
-{/* =================================
-    1. HERO SLIDER
-================================= */}
 
-<section
-  className="
-    relative
-    -mt-[39px]
-    bg-[#f5f5f5]
-    pt-[39px]
-    xl:-mt-[39px]
-  "
->
-  <div
-    className="
-      relative
-      h-[340px]
-      overflow-hidden
+      {/* =================================
+          1. HERO SLIDER
+      ================================= */}
 
-      sm:h-[390px]
-      lg:h-[430px]
-      xl:h-[460px]
-    "
-  >
-    {/* =================================
-        HERO IMAGE
-    ================================= */}
-
-    {currentHero?.image && (
-      <img
-        src={getImageUrl(
-          currentHero.image
-        )}
-        alt={
-          currentHero.title ||
-          "Hero Banner"
-        }
+      <section
         className="
-          absolute
-          inset-0
-          h-full
-          w-full
-          object-cover
-          object-center
-        "
-      />
-    )}
-
-    {/* =================================
-        FALLBACK
-    ================================= */}
-
-    {!currentHero?.image && (
-      <div
-        className="
-          absolute
-          inset-0
-          bg-[#e4572d]
-        "
-      />
-    )}
-
-    {/* =================================
-        CONTENT
-    ================================= */}
-
-    <div
-      className="
-        relative
-        z-10
-        mx-auto
-        flex
-        h-full
-        max-w-[1200px]
-        items-center
-        px-6
-
-        lg:px-10
-      "
-    >
-      <div
-        className="
-          max-w-[500px]
-          text-white
+          relative
+          -mt-[39px]
+          bg-[#f5f5f5]
+          pt-[39px]
+          xl:-mt-[39px]
         "
       >
-        {currentHero?.title && (
-          <h1
-            className="
-              text-[34px]
-              font-black
-              leading-[1.08]
-              tracking-[-0.02em]
+        <div
+          className="
+            relative
+            h-[340px]
+            overflow-hidden
 
-              sm:text-[42px]
-              lg:text-[50px]
-            "
-          >
-            {currentHero.title}
-          </h1>
-        )}
+            sm:h-[390px]
+            lg:h-[430px]
+            xl:h-[460px]
+          "
+        >
+          {/* =================================
+              HERO IMAGE
+          ================================= */}
 
-        {currentHero?.subtitle && (
-          <p
-            className="
-              mt-3
-              max-w-[450px]
-              text-[16px]
-              leading-[1.5]
-              text-white/95
+          {currentHero?.image && (
+            <img
+              src={getImageUrl(
+                currentHero.image
+              )}
+              alt={
+                currentHero.title ||
+                "Hero Banner"
+              }
+              className="
+                absolute
+                inset-0
+                h-full
+                w-full
+                object-cover
+                object-center
+              "
+            />
+          )}
 
-              sm:text-[18px]
-            "
-          >
-            {currentHero.subtitle}
-          </p>
-        )}
+          {/* =================================
+              FALLBACK
+          ================================= */}
 
-        {currentHero?.priceText && (
+          {!currentHero?.image && (
+            <div
+              className="
+                absolute
+                inset-0
+                bg-[#e4572d]
+              "
+            />
+          )}
+
+          {/* =================================
+              CONTENT
+          ================================= */}
+
           <div
             className="
-              mt-4
-              text-[17px]
-              font-semibold
-            "
-          >
-            {currentHero.priceText}
-          </div>
-        )}
-
-        {currentHero?.buttonText && (
-          <Link
-            to={
-              currentHero.buttonUrl ||
-              "/shop"
-            }
-            className="
-              mt-6
-              inline-flex
+              relative
+              z-10
+              mx-auto
+              flex
+              h-full
+              max-w-[1200px]
               items-center
-              gap-4
-              rounded-full
-              bg-[#272727]
-              px-7
-              py-[14px]
-              text-[13px]
-              font-bold
-              uppercase
-              text-white
-              transition
+              px-6
 
-              hover:bg-[var(--primary-color)]
+              lg:px-10
             "
           >
-            {currentHero.buttonText}
+            <div
+              className="
+                max-w-[500px]
+                text-white
+              "
+            >
+              {currentHero?.title && (
+                <h1
+                  className="
+                    text-[34px]
+                    font-black
+                    leading-[1.08]
+                    tracking-[-0.02em]
 
-            <ShoppingBag
-              size={16}
-            />
-          </Link>
-        )}
-      </div>
-    </div>
+                    sm:text-[42px]
+                    lg:text-[50px]
+                  "
+                >
+                  {currentHero.title}
+                </h1>
+              )}
 
-    {/* =================================
-        SLIDER DOTS
-    ================================= */}
+              {currentHero?.subtitle && (
+                <p
+                  className="
+                    mt-3
+                    max-w-[450px]
+                    text-[16px]
+                    leading-[1.5]
+                    text-white/95
 
-    {heroSlides.length > 1 && (
-      <div
-        className="
-          absolute
-          bottom-5
-          left-1/2
-          z-20
-          flex
-          -translate-x-1/2
-          gap-2
-        "
-      >
-        {heroSlides.map(
-          (slide, index) => (
-            <button
-              key={
-                slide._id ||
-                index
-              }
-              type="button"
-              onClick={() =>
-                setActiveHero(
-                  index
+                    sm:text-[18px]
+                  "
+                >
+                  {currentHero.subtitle}
+                </p>
+              )}
+
+              {currentHero?.priceText && (
+                <div
+                  className="
+                    mt-4
+                    text-[17px]
+                    font-semibold
+                  "
+                >
+                  {currentHero.priceText}
+                </div>
+              )}
+
+              {currentHero?.buttonText && (
+                <Link
+                  to={
+                    currentHero.buttonUrl ||
+                    "/shop"
+                  }
+                  className="
+                    mt-6
+                    inline-flex
+                    items-center
+                    gap-4
+                    rounded-full
+                    bg-[#272727]
+                    px-7
+                    py-[14px]
+                    text-[13px]
+                    font-bold
+                    uppercase
+                    text-white
+                    transition
+
+                    hover:bg-[var(--primary-color)]
+                  "
+                >
+                  {currentHero.buttonText}
+
+                  <ShoppingBag
+                    size={16}
+                  />
+                </Link>
+              )}
+            </div>
+          </div>
+
+          {/* =================================
+              SLIDER DOTS
+          ================================= */}
+
+          {heroSlides.length > 1 && (
+            <div
+              className="
+                absolute
+                bottom-5
+                left-1/2
+                z-20
+                flex
+                -translate-x-1/2
+                gap-2
+              "
+            >
+              {heroSlides.map(
+                (slide, index) => (
+                  <button
+                    key={
+                      slide._id ||
+                      index
+                    }
+                    type="button"
+                    onClick={() =>
+                      setActiveHero(
+                        index
+                      )
+                    }
+                    aria-label={`Show slide ${
+                      index + 1
+                    }`}
+                    className={`
+                      h-2.5
+                      rounded-full
+                      transition-all
+
+                      ${
+                        index ===
+                        activeHero
+                          ? "w-8 bg-white"
+                          : "w-2.5 bg-white/60"
+                      }
+                    `}
+                  />
                 )
-              }
-              aria-label={`Show slide ${
-                index + 1
-              }`}
-              className={`
-                h-2.5
-                rounded-full
-                transition-all
-
-                ${
-                  index ===
-                  activeHero
-                    ? "w-8 bg-white"
-                    : "w-2.5 bg-white/60"
-                }
-              `}
-            />
-          )
-        )}
-      </div>
-    )}
-  </div>
-</section>
+              )}
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* =================================
           2. MARQUEE OFFERS
@@ -929,7 +1105,8 @@ const HomePage = () => {
             animate-[marquee_28s_linear_infinite]
           "
         >
-          {[...marqueeItems,
+          {[
+            ...marqueeItems,
             ...marqueeItems,
           ].map(
             (item, index) => (
@@ -976,7 +1153,7 @@ const HomePage = () => {
           className="
             mx-auto
             max-w-[1200px]
-            px-4
+            px-2.5
             sm:px-5
           "
         >
@@ -989,9 +1166,9 @@ const HomePage = () => {
             <div
               className="
                 grid
-                grid-cols-1
-                gap-4
-                sm:grid-cols-2
+                grid-cols-2
+                gap-2.5
+                sm:gap-4
                 lg:grid-cols-3
                 xl:grid-cols-4
               "
@@ -1005,6 +1182,11 @@ const HomePage = () => {
                         )
                       : "";
 
+                  const productCount =
+                    getCategoryProductCount(
+                      category
+                    );
+
                   return (
                     <Link
                       key={category._id}
@@ -1014,12 +1196,15 @@ const HomePage = () => {
                         flex
                         min-w-0
                         items-center
-                        gap-4
-                        rounded-[16px]
+                        gap-2
+                        rounded-[12px]
+                        p-2
+                        sm:gap-4
+                        sm:rounded-[16px]
                         border
                         border-[#e8e8e8]
                         bg-white
-                        p-4
+                        sm:p-4
                         transition-all
                         duration-200
                         hover:-translate-y-[2px]
@@ -1032,17 +1217,21 @@ const HomePage = () => {
                       <div
                         className="
                           flex
-                          h-[78px]
-                          w-[78px]
+                          h-[52px]
+                          w-[52px]
+                          sm:h-[78px]
+                          sm:w-[78px]
                           shrink-0
                           items-center
                           justify-center
                           overflow-hidden
-                          rounded-[14px]
+                          rounded-[10px]
+                          sm:rounded-[14px]
                           border
                           border-[#eef0eb]
                           bg-[#f7f9f4]
-                          p-[5px]
+                          p-[3px]
+                          sm:p-[5px]
                         "
                       >
                         {image ? (
@@ -1080,24 +1269,29 @@ const HomePage = () => {
                       >
                         <div
                           className="
-                            text-[11px]
+                            whitespace-nowrap
+                            text-[9px]
+                            leading-tight
                             text-gray-400
+                            sm:text-[11px]
                             2xl:text-[12px]
                           "
                         >
-                          {category.productCount ||
-                            category.count ||
-                            "0+"}{" "}
-                          Product
+                          {productCount}+{" "}
+                          {productCount === 1
+                            ? "Product"
+                            : "Products"}
                         </div>
 
                         <div
                           className="
                             mt-1
                             line-clamp-2
-                            text-[15px]
+                            text-[12px]
                             font-bold
-                            leading-[1.3]
+                            leading-[1.2]
+                            sm:text-[15px]
+                            sm:leading-[1.3]
                             text-[#222]
                             2xl:text-[16px]
                           "
@@ -1111,8 +1305,10 @@ const HomePage = () => {
                       <div
                         className="
                           flex
-                          h-9
-                          w-9
+                          h-7
+                          w-7
+                          sm:h-9
+                          sm:w-9
                           shrink-0
                           items-center
                           justify-center
@@ -1128,7 +1324,7 @@ const HomePage = () => {
                         "
                       >
                         <ArrowRight
-                          size={15}
+                          className="h-[13px] w-[13px] sm:h-[15px] sm:w-[15px]"
                         />
                       </div>
                     </Link>
@@ -1397,10 +1593,12 @@ const HomePage = () => {
           {[
             {
               icon: Truck,
+
               title:
                 settings.freeDeliveryEnabled
                   ? "Free delivery"
                   : "Fast delivery",
+
               text:
                 settings.estimatedDeliveryText ||
                 "Orders from all items",
@@ -1408,16 +1606,20 @@ const HomePage = () => {
 
             {
               icon: RefreshCcw,
+
               title:
                 "Return & refund",
+
               text:
                 "Easy shopping support",
             },
 
             {
               icon: Headphones,
+
               title:
                 "Customer support",
+
               text:
                 settings.phone ||
                 "We are here to help",
@@ -1425,8 +1627,10 @@ const HomePage = () => {
 
             {
               icon: Mail,
+
               title:
                 "Join newsletter",
+
               text:
                 "Get offers and updates",
             },
@@ -1537,12 +1741,18 @@ const HomePage = () => {
                   {
                     _id:
                       "testimonial-placeholder",
+
                     name:
                       "Store customer",
+
                     role:
                       "Customer",
+
                     comment:
-                      `Thank you for shopping with ${settings.storeName || "our store"}. Customer reviews will appear here.`,
+                      `Thank you for shopping with ${
+                        settings.storeName ||
+                        "our store"
+                      }. Customer reviews will appear here.`,
                   },
                 ]
             ).map(

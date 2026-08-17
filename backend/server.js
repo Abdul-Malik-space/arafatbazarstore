@@ -125,21 +125,14 @@ app.use(
 
 const allowedOrigins = [
   "http://localhost:5173",
+  "https://arafatbazar.pk",
+  "https://www.arafatbazar.pk",
+];
 
-  process.env.CLIENT_URL,
-
-  ...(
-    process.env
-      .ALLOWED_ORIGINS ||
-    ""
-  ).split(","),
-]
-  .map((origin) =>
-    String(
-      origin || ""
-    ).trim()
-  )
-  .filter(Boolean);
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true,
+}));
 
 // Remove duplicates.
 const uniqueAllowedOrigins = [

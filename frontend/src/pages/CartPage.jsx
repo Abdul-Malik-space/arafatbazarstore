@@ -201,7 +201,7 @@ const CartPage = () => {
                 items-center
                 gap-3
                 rounded-full
-                bg-[#282828]
+                bg-[var(--primary-color)]
                 px-7
                 py-3.5
                 text-[12px]
