@@ -123,48 +123,94 @@ app.use(
 // CORS
 // ========================================
 
+// Keep localhost, custom production domains,
+// Vercel production, and this project's Vercel
+// preview deployments working at the same time.
+//
+// You can also add future frontend domains without
+// editing code by setting CLIENT_URL, FRONTEND_URL,
+// or a comma-separated CORS_ORIGINS environment variable.
+
+const normalizeOrigin = (value = "") =>
+  String(value)
+    .trim()
+    .replace(/\/$/, "");
+
+const environmentOrigins = [
+  process.env.CLIENT_URL,
+  process.env.FRONTEND_URL,
+  ...(process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((value) => value.trim()),
+]
+  .filter(Boolean)
+  .map(normalizeOrigin);
+
 const allowedOrigins = [
+  // Local Vite development
   "http://localhost:5173",
+  "http://127.0.0.1:5173",
+
+  // Optional Vite preview
+  "http://localhost:4173",
+  "http://127.0.0.1:4173",
+
+  // Custom production website
   "https://arafatbazar.pk",
   "https://www.arafatbazar.pk",
-];
 
-app.use(cors({
-  origin: allowedOrigins,
-  credentials: true,
-}));
+  // Vercel production alias
+  "https://arafatbazarstore.vercel.app",
 
-// Remove duplicates.
+  // Any extra origins configured in Vercel/local .env
+  ...environmentOrigins,
+].map(normalizeOrigin);
+
+// Remove duplicates after normalization.
 const uniqueAllowedOrigins = [
-  ...new Set(
-    allowedOrigins
-  ),
+  ...new Set(allowedOrigins),
 ];
+
+// Only allow preview URLs that belong to this
+// specific Vercel project. Examples:
+// https://arafatbazarstore-c91h.vercel.app
+// https://arafatbazarstore-git-main-abc.vercel.app
+const vercelPreviewPattern =
+  /^https:\/\/arafatbazarstore(?:-[a-z0-9-]+)?\.vercel\.app$/i;
+
+const isAllowedOrigin = (origin) => {
+  // Requests from curl/Postman/server-to-server
+  // may not contain an Origin header.
+  if (!origin) {
+    return true;
+  }
+
+  const normalizedOrigin =
+    normalizeOrigin(origin);
+
+  if (
+    uniqueAllowedOrigins.includes(
+      normalizedOrigin
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    vercelPreviewPattern.test(
+      normalizedOrigin
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+};
 
 const corsOptions = {
-  origin(
-    origin,
-    callback
-  ) {
-    // Postman, Thunder Client,
-    // curl and server-to-server
-    // requests may have no Origin.
-    if (!origin) {
-      return callback(
-        null,
-        true
-      );
-    }
-
-    if (
-      uniqueAllowedOrigins.includes(
-        origin
-      )
-    ) {
-      return callback(
-        null,
-        true
-      );
+  origin(origin, callback) {
+    if (isAllowedOrigin(origin)) {
+      return callback(null, true);
     }
 
     console.error(
@@ -172,20 +218,16 @@ const corsOptions = {
       origin
     );
 
-    const error =
-      new Error(
-        "Origin is not allowed by CORS."
-      );
+    const error = new Error(
+      "Origin is not allowed by CORS."
+    );
 
     error.statusCode = 403;
 
-    return callback(
-      error
-    );
+    return callback(error);
   },
 
-  // REQUIRED for HttpOnly
-  // authentication cookies.
+  // Required for HttpOnly admin auth cookies.
   credentials: true,
 
   methods: [
@@ -202,11 +244,13 @@ const corsOptions = {
     "Authorization",
     "Accept",
   ],
+
+  optionsSuccessStatus: 204,
 };
 
-app.use(
-  cors(corsOptions)
-);
+// IMPORTANT: Apply CORS only once.
+// app.use(cors(...)) also handles OPTIONS preflight.
+app.use(cors(corsOptions));
 
 // ========================================
 // STATIC UPLOADS
