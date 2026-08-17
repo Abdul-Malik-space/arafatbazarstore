@@ -166,6 +166,42 @@ const addressSchema = new mongoose.Schema(
   }
 );
 
+
+// ========================================
+// PACKING SELECTION SCHEMA
+//
+// Snapshot of the packing option selected
+// when the order was placed. The display
+// name/description can later change in
+// Site Settings without changing old orders.
+// ========================================
+
+const packingSelectionSchema = new mongoose.Schema(
+  {
+    code: {
+      type: String,
+      default: "",
+      trim: true,
+      lowercase: true,
+    },
+
+    name: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    description: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+  },
+  {
+    _id: false,
+  }
+);
+
 // ========================================
 // MAIN ORDER SCHEMA
 // ========================================
@@ -229,6 +265,27 @@ const orderSchema = new mongoose.Schema(
     },
 
     deliveryFee: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    // ====================================
+    // PACKING / PACKAGING
+    //
+    // The backend controller will validate
+    // the selected packing code against the
+    // active SiteSettings packing options.
+    // The client will never be trusted to
+    // provide the packing price directly.
+    // ====================================
+
+    packing: {
+      type: packingSelectionSchema,
+      default: () => ({}),
+    },
+
+    packingFee: {
       type: Number,
       default: 0,
       min: 0,

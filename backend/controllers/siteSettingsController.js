@@ -132,6 +132,138 @@ const prepareOrderedItems = (
 };
 
 // ========================================
+// PACKING HELPERS
+// ========================================
+
+const normalizePackingCode = (
+  value
+) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+const normalizePackingOptions = (
+  items
+) => {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  return items.map(
+    (item, index) => ({
+      ...(item?._id
+        ? { _id: item._id }
+        : {}),
+
+      code:
+        normalizePackingCode(
+          item?.code
+        ),
+
+      name:
+        String(
+          item?.name || ""
+        ).trim(),
+
+      description:
+        String(
+          item?.description ||
+            ""
+        ).trim(),
+
+      price:
+        Number(item?.price ?? 0),
+
+      isActive:
+        item?.isActive ===
+        undefined
+          ? true
+          : normalizeBoolean(
+              item.isActive
+            ),
+
+      isDefault:
+        item?.isDefault ===
+        undefined
+          ? false
+          : normalizeBoolean(
+              item.isDefault
+            ),
+
+      sortOrder: index + 1,
+    })
+  );
+};
+
+const getPublicPackingOptions = (
+  items
+) => {
+  const active =
+    getActiveSortedItems(
+      items
+    ).map((item) => {
+      const plain =
+        toPlainObject(item) || {};
+
+      return {
+        code:
+          normalizePackingCode(
+            plain.code
+          ),
+
+        name:
+          String(
+            plain.name || ""
+          ).trim(),
+
+        description:
+          String(
+            plain.description ||
+              ""
+          ).trim(),
+
+        price:
+          Math.max(
+            0,
+            Number(
+              plain.price || 0
+            ) || 0
+          ),
+
+        isDefault:
+          plain.isDefault ===
+          true,
+
+        sortOrder:
+          Number(
+            plain.sortOrder || 0
+          ),
+      };
+    });
+
+  // Old settings documents may predate the
+  // packing feature. If active options exist
+  // but none is marked default, make the first
+  // active option the public default without
+  // mutating the database document here.
+  if (
+    active.length > 0 &&
+    !active.some(
+      (item) => item.isDefault
+    )
+  ) {
+    active[0] = {
+      ...active[0],
+      isDefault: true,
+    };
+  }
+
+  return active;
+};
+
+// ========================================
 // PUBLIC HERO SLIDE
 // ========================================
 
@@ -511,6 +643,21 @@ const getPublicSiteSettings =
         );
 
       // ====================================
+      // PACKING / PACKAGING
+      // ====================================
+
+      const packingEnabled =
+        settings.packingEnabled !==
+        false;
+
+      const packingOptions =
+        packingEnabled
+          ? getPublicPackingOptions(
+              settings.packingOptions
+            )
+          : [];
+
+      // ====================================
       // PUBLIC SETTINGS
       // ====================================
 
@@ -604,6 +751,14 @@ const getPublicSiteSettings =
         estimatedDeliveryText:
           settings
             .estimatedDeliveryText,
+
+        // ----------------------------------
+        // PACKING / PACKAGING
+        // ----------------------------------
+
+        packingEnabled,
+
+        packingOptions,
 
         // ----------------------------------
         // PAYMENT METHODS
@@ -1038,11 +1193,221 @@ const updateSiteSettings =
       }
 
       // ====================================
+      // PACKING / PACKAGING OPTIONS
+      // ====================================
+
+      if (
+        data.packingOptions !==
+        undefined
+      ) {
+        if (
+          !Array.isArray(
+            data.packingOptions
+          )
+        ) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+
+              message:
+                "Packing options must be an array",
+            });
+        }
+
+        const packingOptions =
+          normalizePackingOptions(
+            data.packingOptions
+          );
+
+        const invalidName =
+          packingOptions.find(
+            (option) =>
+              !option.name
+          );
+
+        if (invalidName) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+
+              message:
+                "Every packing option must have a name",
+            });
+        }
+
+        const invalidCode =
+          packingOptions.find(
+            (option) =>
+              !option.code
+          );
+
+        if (invalidCode) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+
+              message:
+                "Every packing option must have a valid code",
+            });
+        }
+
+        const codes =
+          packingOptions.map(
+            (option) =>
+              option.code
+          );
+
+        if (
+          new Set(codes).size !==
+          codes.length
+        ) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+
+              message:
+                "Packing option codes must be unique",
+            });
+        }
+
+        const invalidPrice =
+          packingOptions.find(
+            (option) =>
+              !Number.isFinite(
+                option.price
+              ) ||
+              option.price < 0
+          );
+
+        if (invalidPrice) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+
+              message:
+                "Packing prices must be valid numbers greater than or equal to zero",
+            });
+        }
+
+        const packingWillBeEnabled =
+          data.packingEnabled !==
+          undefined
+            ? normalizeBoolean(
+                data.packingEnabled
+              )
+            : settings
+                .packingEnabled !==
+              false;
+
+        if (packingWillBeEnabled) {
+          if (
+            packingOptions.length ===
+            0
+          ) {
+            return res
+              .status(400)
+              .json({
+                success: false,
+
+                message:
+                  "Add at least one packing option or disable packing",
+              });
+          }
+
+          const activeOptions =
+            packingOptions.filter(
+              (option) =>
+                option.isActive
+            );
+
+          if (
+            activeOptions.length ===
+            0
+          ) {
+            return res
+              .status(400)
+              .json({
+                success: false,
+
+                message:
+                  "At least one packing option must be active",
+              });
+          }
+
+          const defaultOptions =
+            packingOptions.filter(
+              (option) =>
+                option.isDefault
+            );
+
+          if (
+            defaultOptions.length !==
+            1
+          ) {
+            return res
+              .status(400)
+              .json({
+                success: false,
+
+                message:
+                  "Choose exactly one default packing option",
+              });
+          }
+
+          if (
+            !defaultOptions[0]
+              .isActive
+          ) {
+            return res
+              .status(400)
+              .json({
+                success: false,
+
+                message:
+                  "The default packing option must be active",
+              });
+          }
+        } else {
+          // Even while packing is disabled, keep
+          // the stored configuration consistent if
+          // multiple defaults were submitted.
+          let foundDefault = false;
+
+          packingOptions.forEach(
+            (option) => {
+              if (
+                option.isDefault &&
+                !foundDefault
+              ) {
+                foundDefault =
+                  true;
+                return;
+              }
+
+              if (option.isDefault) {
+                option.isDefault =
+                  false;
+              }
+            }
+          );
+        }
+
+        settings.packingOptions =
+          packingOptions;
+      }
+
+      // ====================================
       // BOOLEAN SETTINGS
       // ====================================
 
       const booleanFields = [
         "freeDeliveryEnabled",
+        "packingEnabled",
 
         "codEnabled",
         "bankTransferEnabled",

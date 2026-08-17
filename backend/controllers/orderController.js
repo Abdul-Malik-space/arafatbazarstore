@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
 const CustomerProfile = require("../models/CustomerProfile");
+const SiteSettings = require("../models/SiteSettings");
 const { normalizePhoneKey } = require("../utils/customerIdentity");
 
 // ========================================
@@ -30,6 +31,115 @@ const getVariantById = (product, variantId) => {
   }
 
   return product.variants.id(variantId);
+};
+
+// ========================================
+// PACKING HELPERS
+// ========================================
+
+const normalizePackingCode = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const resolvePackingSelection = (settings, requestedPacking) => {
+  // Packing can be globally disabled from Store Settings.
+  if (settings?.packingEnabled === false) {
+    return {
+      packing: {
+        code: "",
+        name: "",
+        description: "",
+      },
+      packingFee: 0,
+    };
+  }
+
+  const activeOptions = Array.isArray(settings?.packingOptions)
+    ? settings.packingOptions
+        .filter((option) => option?.isActive !== false)
+        .sort(
+          (a, b) =>
+            Number(a?.sortOrder || 0) -
+            Number(b?.sortOrder || 0)
+        )
+    : [];
+
+  // Backwards-safe behavior for stores that have not
+  // configured packing options yet.
+  if (activeOptions.length === 0) {
+    return {
+      packing: {
+        code: "",
+        name: "",
+        description: "",
+      },
+      packingFee: 0,
+    };
+  }
+
+  const rawRequestedCode =
+    typeof requestedPacking === "object" && requestedPacking !== null
+      ? requestedPacking.code
+      : requestedPacking;
+
+  const requestedCode = normalizePackingCode(rawRequestedCode);
+
+  let selectedOption = null;
+
+  if (requestedCode) {
+    selectedOption = activeOptions.find(
+      (option) => normalizePackingCode(option?.code) === requestedCode
+    );
+
+    if (!selectedOption) {
+      const error = new Error("Selected packing option is not available");
+      error.statusCode = 400;
+      throw error;
+    }
+  } else {
+    // If checkout sends no packing code, use the active
+    // default option; otherwise fall back to the first
+    // active option so older frontends keep working.
+    selectedOption =
+      activeOptions.find((option) => option?.isDefault === true) ||
+      activeOptions[0];
+  }
+
+  const packingFee = Math.max(Number(selectedOption?.price) || 0, 0);
+
+  return {
+    packing: {
+      code: normalizePackingCode(selectedOption?.code),
+      name: String(selectedOption?.name || "").trim(),
+      description: String(selectedOption?.description || "").trim(),
+    },
+    packingFee,
+  };
+};
+
+const calculateDeliveryFee = (settings, subtotal) => {
+  const configuredDeliveryFee = Math.max(
+    Number(
+      settings?.deliveryFee ??
+        process.env.DEFAULT_DELIVERY_FEE ??
+        0
+    ) || 0,
+    0
+  );
+
+  if (settings?.freeDeliveryEnabled === true) {
+    const minimum = Math.max(
+      Number(settings?.freeDeliveryMinimum) || 0,
+      0
+    );
+
+    if (minimum > 0 && Number(subtotal) >= minimum) {
+      return 0;
+    }
+  }
+
+  return configuredDeliveryFee;
 };
 
 const buildOrderSummary = async () => {
@@ -112,6 +222,13 @@ const createOrder = async (req, res) => {
       items,
       paymentMethod = "cod",
       customerNote = "",
+
+      // Preferred field used by the new checkout.
+      packingCode = "",
+
+      // Compatibility aliases.
+      packingOptionCode = "",
+      packing: requestedPacking = null,
     } = req.body;
 
     if (!customer?.firstName || !customer?.phone) {
@@ -164,6 +281,28 @@ const createOrder = async (req, res) => {
           "We are unable to process this order. Please contact store support.",
       });
     }
+
+    // ========================================
+    // STORE SETTINGS + PACKING VALIDATION
+    //
+    // Never trust a packing name/price sent by
+    // the browser. Checkout sends only the code;
+    // the backend resolves the authoritative name
+    // and price from SiteSettings.
+    // ========================================
+
+    const settings = await SiteSettings.getSettings();
+
+    const requestedPackingValue =
+      packingCode ||
+      packingOptionCode ||
+      requestedPacking ||
+      "";
+
+    const { packing, packingFee } = resolvePackingSelection(
+      settings,
+      requestedPackingValue
+    );
 
     let createdOrder = null;
 
@@ -259,9 +398,20 @@ const createOrder = async (req, res) => {
         }
       }
 
-      const deliveryFee = Number(process.env.DEFAULT_DELIVERY_FEE || 0);
+      // ========================================
+      // SECURE SERVER-SIDE TOTALS
+      // ========================================
+
+      const deliveryFee = calculateDeliveryFee(settings, subtotal);
       const discount = 0;
-      const totalAmount = Math.max(subtotal + deliveryFee - discount, 0);
+
+      const totalAmount = Math.max(
+        subtotal +
+          deliveryFee +
+          packingFee -
+          discount,
+        0
+      );
 
       const orders = await Order.create(
         [
@@ -285,6 +435,8 @@ const createOrder = async (req, res) => {
             items: orderItems,
             subtotal,
             deliveryFee,
+            packing,
+            packingFee,
             discount,
             totalAmount,
             paymentMethod,
@@ -480,6 +632,8 @@ const getOrderByNumber = async (req, res) => {
         items: order.items,
         subtotal: order.subtotal,
         deliveryFee: order.deliveryFee,
+        packing: order.packing,
+        packingFee: order.packingFee || 0,
         discount: order.discount,
         totalAmount: order.totalAmount,
         paymentMethod: order.paymentMethod,

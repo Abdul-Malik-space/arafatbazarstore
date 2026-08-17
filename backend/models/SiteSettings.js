@@ -75,19 +75,33 @@ const menuItemSchema =
 const heroSlideSchema =
   new mongoose.Schema(
     {
+      // ------------------------------------
+      // SMALL TITLE - OPTIONAL
+      // ------------------------------------
+
       smallTitle: {
         type: String,
         default: "",
         trim: true,
       },
 
-      // Optional heading. Keep blank when the banner
-      // image already contains its own heading/text.
+      // ------------------------------------
+      // MAIN HEADING - OPTIONAL
+      //
+      // A banner may already contain its
+      // heading inside the uploaded image.
+      // Keep this empty in that case.
+      // ------------------------------------
+
       title: {
         type: String,
         default: "",
         trim: true,
       },
+
+      // ------------------------------------
+      // SUBTITLE - OPTIONAL
+      // ------------------------------------
 
       subtitle: {
         type: String,
@@ -102,21 +116,33 @@ const heroSlideSchema =
         trim: true,
       },
 
+      // ------------------------------------
+      // PRICE / OFFER TEXT - OPTIONAL
+      // ------------------------------------
+
       priceText: {
         type: String,
         default: "",
         trim: true,
       },
 
-      // Hero overlay text color
+      // ------------------------------------
+      // OVERLAY TEXT COLOR
+      //
+      // Used for small title, heading,
+      // subtitle and price/offer text.
+      // ------------------------------------
+
       textColor: {
         type: String,
         default: "#ffffff",
         trim: true,
       },
 
-      // Optional CTA button. Keep blank when no button
-      // should be displayed over the banner.
+      // ====================================
+      // CTA BUTTON
+      // ====================================
+
       buttonText: {
         type: String,
         default: "",
@@ -141,13 +167,20 @@ const heroSlideSchema =
         trim: true,
       },
 
-      // When enabled, the button can be positioned freely
-      // using X/Y percentages over the banner image.
+      // ------------------------------------
+      // CUSTOM BUTTON POSITION
+      //
+      // false = button follows normal text
+      // layout.
+      // true = use X/Y percentages below.
+      // ------------------------------------
+
       buttonCustomPosition: {
         type: Boolean,
         default: false,
       },
 
+      // 0 = left, 50 = center, 100 = right
       buttonPositionX: {
         type: Number,
         default: 15,
@@ -155,6 +188,7 @@ const heroSlideSchema =
         max: 100,
       },
 
+      // 0 = top, 50 = center, 100 = bottom
       buttonPositionY: {
         type: Number,
         default: 75,
@@ -162,10 +196,18 @@ const heroSlideSchema =
         max: 100,
       },
 
+      // ====================================
+      // HERO IMAGE
+      // ====================================
+
       image: {
         type: String,
         default: "",
       },
+
+      // ====================================
+      // ORDER / STATUS
+      // ====================================
 
       sortOrder: {
         type: Number,
@@ -816,6 +858,64 @@ const homeSectionsSchema =
   );
 
 // ========================================
+// PACKING OPTION SCHEMA
+// ========================================
+
+const packingOptionSchema =
+  new mongoose.Schema(
+    {
+      // Stable key used by checkout/backend.
+      // The customer-facing name can change
+      // without breaking saved selections.
+      code: {
+        type: String,
+        required: true,
+        trim: true,
+        lowercase: true,
+      },
+
+      name: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      description: {
+        type: String,
+        default: "",
+        trim: true,
+      },
+
+      // Additional packing charge.
+      price: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
+      isActive: {
+        type: Boolean,
+        default: true,
+      },
+
+      // Only one option should be treated as
+      // default by the admin/controller layer.
+      isDefault: {
+        type: Boolean,
+        default: false,
+      },
+
+      sortOrder: {
+        type: Number,
+        default: 0,
+      },
+    },
+    {
+      _id: true,
+    }
+  );
+
+// ========================================
 // SITE SETTINGS
 // ========================================
 
@@ -968,6 +1068,60 @@ const siteSettingsSchema =
         default:
           "Delivery within 2-4 working days",
         trim: true,
+      },
+
+      // ====================================
+      // PACKING / PACKAGING OPTIONS
+      // ====================================
+
+      // Master switch. When disabled, checkout
+      // will not show packing choices.
+      packingEnabled: {
+        type: Boolean,
+        default: true,
+      },
+
+      // Admin-manageable packing choices.
+      // Prices are stored here and will later
+      // be re-validated by the backend when
+      // an order is created.
+      packingOptions: {
+        type: [packingOptionSchema],
+
+        default: [
+          {
+            code: "standard",
+            name: "Standard Packing",
+            description:
+              "Normal store packaging",
+            price: 0,
+            isActive: true,
+            isDefault: true,
+            sortOrder: 1,
+          },
+
+          {
+            code: "secure",
+            name: "Secure Packing",
+            description:
+              "Extra protective packaging for safer delivery",
+            price: 100,
+            isActive: true,
+            isDefault: false,
+            sortOrder: 2,
+          },
+
+          {
+            code: "gift",
+            name: "Gift Packing",
+            description:
+              "Premium gift wrapping",
+            price: 250,
+            isActive: true,
+            isDefault: false,
+            sortOrder: 3,
+          },
+        ],
       },
 
       // ====================================

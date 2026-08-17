@@ -13,12 +13,15 @@ import {
   Mail,
   MapPin,
   Megaphone,
+  Package,
   Phone,
+  Plus,
   RefreshCcw,
   Save,
   Settings,
   ShoppingBag,
   Store,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -80,6 +83,42 @@ const DEFAULT_FORM = {
 
   estimatedDeliveryText:
     "Delivery within 2-4 working days",
+
+  // Packing / packaging
+  packingEnabled: true,
+
+  packingOptions: [
+    {
+      code: "standard",
+      name: "Standard Packing",
+      description:
+        "Normal store packaging",
+      price: 0,
+      isActive: true,
+      isDefault: true,
+      sortOrder: 1,
+    },
+    {
+      code: "secure",
+      name: "Secure Packing",
+      description:
+        "Extra protective packaging for safer delivery",
+      price: 100,
+      isActive: true,
+      isDefault: false,
+      sortOrder: 2,
+    },
+    {
+      code: "gift",
+      name: "Gift Packing",
+      description:
+        "Premium gift wrapping",
+      price: 250,
+      isActive: true,
+      isDefault: false,
+      sortOrder: 3,
+    },
+  ],
 
   // Announcement
   showAnnouncement: true,
@@ -614,6 +653,189 @@ const AdminStoreSettingsPage =
       setSuccessMessage("");
     };
 
+
+    // ======================================
+    // PACKING HELPERS
+    // ======================================
+
+    const normalizePackingCode = (
+      value
+    ) => {
+      return String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 50);
+    };
+
+    const createPackingClientId = () =>
+      `packing-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+
+    const normalizePackingOptions = (
+      options
+    ) => {
+      const source = Array.isArray(options)
+        ? options
+        : [];
+
+      return source.map(
+        (option, index) => ({
+          _id: option?._id || "",
+          _clientId:
+            option?._id ||
+            option?._clientId ||
+            createPackingClientId(),
+          code:
+            normalizePackingCode(
+              option?.code
+            ) ||
+            `packing-${index + 1}`,
+          name:
+            option?.name || "",
+          description:
+            option?.description || "",
+          price: Number(
+            option?.price ?? 0
+          ),
+          isActive:
+            option?.isActive !== false,
+          isDefault:
+            option?.isDefault === true,
+          sortOrder:
+            Number(
+              option?.sortOrder ??
+                index + 1
+            ),
+        })
+      );
+    };
+
+    const updatePackingOption = (
+      clientId,
+      field,
+      value
+    ) => {
+      setForm((current) => ({
+        ...current,
+        packingOptions:
+          current.packingOptions.map(
+            (option) =>
+              option._clientId ===
+              clientId
+                ? {
+                    ...option,
+                    [field]: value,
+                  }
+                : option
+          ),
+      }));
+
+      setDirty(true);
+      setSuccessMessage("");
+    };
+
+    const addPackingOption = () => {
+      setForm((current) => {
+        const nextNumber =
+          current.packingOptions.length +
+          1;
+
+        return {
+          ...current,
+          packingOptions: [
+            ...current.packingOptions,
+            {
+              _id: "",
+              _clientId:
+                createPackingClientId(),
+              code: `packing-${nextNumber}`,
+              name: "New Packing Option",
+              description: "",
+              price: 0,
+              isActive: true,
+              isDefault:
+                current.packingOptions
+                  .length === 0,
+              sortOrder: nextNumber,
+            },
+          ],
+        };
+      });
+
+      setDirty(true);
+      setSuccessMessage("");
+    };
+
+    const removePackingOption = (
+      clientId
+    ) => {
+      setForm((current) => {
+        const removed =
+          current.packingOptions.find(
+            (option) =>
+              option._clientId ===
+              clientId
+          );
+
+        const remaining =
+          current.packingOptions
+            .filter(
+              (option) =>
+                option._clientId !==
+                clientId
+            )
+            .map((option, index) => ({
+              ...option,
+              sortOrder: index + 1,
+            }));
+
+        if (
+          removed?.isDefault &&
+          remaining.length > 0 &&
+          !remaining.some(
+            (option) =>
+              option.isDefault
+          )
+        ) {
+          remaining[0] = {
+            ...remaining[0],
+            isDefault: true,
+          };
+        }
+
+        return {
+          ...current,
+          packingOptions: remaining,
+        };
+      });
+
+      setDirty(true);
+      setSuccessMessage("");
+    };
+
+    const setDefaultPackingOption = (
+      clientId
+    ) => {
+      setForm((current) => ({
+        ...current,
+        packingOptions:
+          current.packingOptions.map(
+            (option) => ({
+              ...option,
+              isDefault:
+                option._clientId ===
+                clientId,
+            })
+          ),
+      }));
+
+      setDirty(true);
+      setSuccessMessage("");
+    };
+
     // ======================================
     // APPLY SETTINGS
     // ======================================
@@ -708,6 +930,25 @@ const AdminStoreSettingsPage =
               settings
                 .estimatedDeliveryText ||
               "Delivery within 2-4 working days",
+
+            packingEnabled:
+              settings
+                .packingEnabled !==
+              false,
+
+            packingOptions:
+              normalizePackingOptions(
+                settings
+                  .packingOptions
+              ).length > 0
+                ? normalizePackingOptions(
+                    settings
+                      .packingOptions
+                  )
+                : normalizePackingOptions(
+                    DEFAULT_FORM
+                      .packingOptions
+                  ),
 
             showAnnouncement:
               settings
@@ -986,6 +1227,77 @@ const AdminStoreSettingsPage =
         return "Free delivery minimum must be zero or greater.";
       }
 
+      if (form.packingEnabled) {
+        if (
+          !Array.isArray(
+            form.packingOptions
+          ) ||
+          form.packingOptions.length ===
+            0
+        ) {
+          return "Add at least one packing option or disable packing.";
+        }
+
+        const codes = [];
+        let activeCount = 0;
+        let defaultCount = 0;
+
+        for (
+          const option of
+          form.packingOptions
+        ) {
+          const code =
+            normalizePackingCode(
+              option.code
+            );
+
+          if (!code) {
+            return "Every packing option needs a code.";
+          }
+
+          if (!option.name.trim()) {
+            return "Every packing option needs a name.";
+          }
+
+          const price = Number(
+            option.price
+          );
+
+          if (
+            Number.isNaN(price) ||
+            price < 0
+          ) {
+            return `Packing price for ${option.name || code} must be zero or greater.`;
+          }
+
+          if (codes.includes(code)) {
+            return `Packing code "${code}" is duplicated. Each packing option needs a unique code.`;
+          }
+
+          codes.push(code);
+
+          if (option.isActive) {
+            activeCount += 1;
+          }
+
+          if (option.isDefault) {
+            defaultCount += 1;
+
+            if (!option.isActive) {
+              return "The default packing option must also be active.";
+            }
+          }
+        }
+
+        if (activeCount === 0) {
+          return "At least one packing option must be active.";
+        }
+
+        if (defaultCount !== 1) {
+          return "Choose exactly one default packing option.";
+        }
+      }
+
       return "";
     };
 
@@ -1089,6 +1401,41 @@ const AdminStoreSettingsPage =
                 .estimatedDeliveryText
                 .trim(),
 
+            packingEnabled:
+              form.packingEnabled,
+
+            packingOptions:
+              form.packingOptions.map(
+                (option, index) => {
+                  const payloadOption = {
+                    code:
+                      normalizePackingCode(
+                        option.code
+                      ),
+                    name:
+                      option.name.trim(),
+                    description:
+                      option.description.trim(),
+                    price: Number(
+                      option.price
+                    ),
+                    isActive:
+                      option.isActive,
+                    isDefault:
+                      option.isDefault,
+                    sortOrder:
+                      index + 1,
+                  };
+
+                  if (option._id) {
+                    payloadOption._id =
+                      option._id;
+                  }
+
+                  return payloadOption;
+                }
+              ),
+
             showAnnouncement:
               form
                 .showAnnouncement,
@@ -1189,6 +1536,12 @@ const AdminStoreSettingsPage =
         key: "store",
         label:
           "Store & Delivery",
+      },
+
+      {
+        key: "packing",
+        label:
+          "Packing",
       },
 
       {
@@ -2127,6 +2480,707 @@ const AdminStoreSettingsPage =
                     )
                   }
                 />
+              </div>
+            </Card>
+          </div>
+        )}
+
+
+
+        {/* =================================
+            PACKING / PACKAGING
+        ================================= */}
+
+        {activeTab ===
+          "packing" && (
+          <div
+            className="
+              space-y-5
+            "
+          >
+            <Card
+              title="Packing & Packaging"
+              description="Offer customers professional packaging choices at checkout. Prices saved here are later re-validated by the backend when an order is created."
+              icon={Package}
+              action={
+                <Toggle
+                  checked={
+                    form.packingEnabled
+                  }
+                  onChange={(
+                    value
+                  ) =>
+                    setField(
+                      "packingEnabled",
+                      value
+                    )
+                  }
+                />
+              }
+            >
+              <div
+                className={`
+                  rounded-[12px]
+                  border
+                  p-4
+
+                  ${
+                    form.packingEnabled
+                      ? "border-green-100 bg-green-50"
+                      : "border-[#e7e7e7] bg-[#fafafa]"
+                  }
+                `}
+              >
+                <div
+                  className="
+                    flex
+                    flex-col
+                    justify-between
+                    gap-4
+                    md:flex-row
+                    md:items-center
+                  "
+                >
+                  <div>
+                    <div
+                      className={`
+                        text-[10px]
+                        font-black
+
+                        ${
+                          form.packingEnabled
+                            ? "text-green-700"
+                            : "text-[#666]"
+                        }
+                      `}
+                    >
+                      {form.packingEnabled
+                        ? "Packing options are enabled"
+                        : "Packing options are disabled"}
+                    </div>
+
+                    <p
+                      className="
+                        mt-1
+                        max-w-[650px]
+                        text-[9px]
+                        leading-5
+                        text-[#777]
+                      "
+                    >
+                      When enabled, customers can choose one active packing option during checkout. One option must be marked as default.
+                    </p>
+                  </div>
+
+                  <div
+                    className="
+                      shrink-0
+                      rounded-[10px]
+                      border
+                      border-white
+                      bg-white
+                      px-4
+                      py-2
+                      text-[9px]
+                      font-bold
+                      text-[#555]
+                      shadow-sm
+                    "
+                  >
+                    {
+                      form.packingOptions.filter(
+                        (option) =>
+                          option.isActive
+                      ).length
+                    } Active / {form.packingOptions.length} Total
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            <Card
+              title="Packing Options"
+              description="Create, price and control the packaging choices available to customers."
+              icon={Package}
+              action={
+                <button
+                  type="button"
+                  disabled={
+                    !form.packingEnabled
+                  }
+                  onClick={
+                    addPackingOption
+                  }
+                  className="
+                    inline-flex
+                    h-9
+                    items-center
+                    gap-2
+                    rounded-[9px]
+                    bg-[#282828]
+                    px-4
+                    text-[9px]
+                    font-black
+                    uppercase
+                    text-white
+                    transition
+                    hover:bg-[#6f9a37]
+                    disabled:cursor-not-allowed
+                    disabled:opacity-40
+                  "
+                >
+                  <Plus size={13} />
+                  Add Option
+                </button>
+              }
+            >
+              {!form.packingEnabled && (
+                <div
+                  className="
+                    mb-5
+                    rounded-[11px]
+                    border
+                    border-amber-100
+                    bg-amber-50
+                    p-4
+                    text-[9px]
+                    leading-5
+                    text-amber-700
+                  "
+                >
+                  Packing is currently disabled. Existing options are kept safely and can be edited again after enabling packing.
+                </div>
+              )}
+
+              {form.packingOptions.length ===
+              0 ? (
+                <div
+                  className="
+                    rounded-[14px]
+                    border
+                    border-dashed
+                    border-[#d9d9d9]
+                    bg-[#fafafa]
+                    px-5
+                    py-10
+                    text-center
+                  "
+                >
+                  <Package
+                    size={30}
+                    className="mx-auto text-[#aaa]"
+                  />
+
+                  <div
+                    className="
+                      mt-3
+                      text-[11px]
+                      font-black
+                      text-[#444]
+                    "
+                  >
+                    No packing options yet
+                  </div>
+
+                  <p
+                    className="
+                      mx-auto
+                      mt-1
+                      max-w-[430px]
+                      text-[9px]
+                      leading-5
+                      text-[#888]
+                    "
+                  >
+                    Add a free standard packing option first, then create paid secure or gift packaging if needed.
+                  </p>
+                </div>
+              ) : (
+                <div
+                  className="
+                    space-y-4
+                  "
+                >
+                  {form.packingOptions.map(
+                    (
+                      option,
+                      index
+                    ) => (
+                      <div
+                        key={
+                          option._clientId
+                        }
+                        className={`
+                          overflow-hidden
+                          rounded-[14px]
+                          border
+                          bg-white
+
+                          ${
+                            option.isDefault
+                              ? "border-[#b9d694] shadow-[0_8px_30px_rgba(111,154,55,0.08)]"
+                              : "border-[#e5e5e5]"
+                          }
+                        `}
+                      >
+                        <div
+                          className="
+                            flex
+                            flex-col
+                            justify-between
+                            gap-3
+                            border-b
+                            border-[#eeeeee]
+                            bg-[#fafafa]
+                            px-4
+                            py-3
+                            md:flex-row
+                            md:items-center
+                          "
+                        >
+                          <div
+                            className="
+                              flex
+                              items-center
+                              gap-3
+                            "
+                          >
+                            <div
+                              className="
+                                flex
+                                h-8
+                                w-8
+                                items-center
+                                justify-center
+                                rounded-[9px]
+                                bg-white
+                                text-[10px]
+                                font-black
+                                text-[#6f9a37]
+                                shadow-sm
+                              "
+                            >
+                              {index + 1}
+                            </div>
+
+                            <div>
+                              <div
+                                className="
+                                  flex
+                                  flex-wrap
+                                  items-center
+                                  gap-2
+                                "
+                              >
+                                <span
+                                  className="
+                                    text-[10px]
+                                    font-black
+                                    text-[#333]
+                                  "
+                                >
+                                  {option.name.trim() ||
+                                    "Packing Option"}
+                                </span>
+
+                                {option.isDefault && (
+                                  <span
+                                    className="
+                                      rounded-full
+                                      bg-[#eaf3df]
+                                      px-2
+                                      py-1
+                                      text-[8px]
+                                      font-black
+                                      uppercase
+                                      text-[#5f8730]
+                                    "
+                                  >
+                                    Default
+                                  </span>
+                                )}
+
+                                {!option.isActive && (
+                                  <span
+                                    className="
+                                      rounded-full
+                                      bg-[#eeeeee]
+                                      px-2
+                                      py-1
+                                      text-[8px]
+                                      font-black
+                                      uppercase
+                                      text-[#777]
+                                    "
+                                  >
+                                    Inactive
+                                  </span>
+                                )}
+                              </div>
+
+                              <div
+                                className="
+                                  mt-1
+                                  font-mono
+                                  text-[8px]
+                                  text-[#999]
+                                "
+                              >
+                                {normalizePackingCode(
+                                  option.code
+                                ) || "no-code"}
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            disabled={
+                              form.packingOptions
+                                .length <= 1
+                            }
+                            onClick={() =>
+                              removePackingOption(
+                                option._clientId
+                              )
+                            }
+                            className="
+                              inline-flex
+                              h-8
+                              items-center
+                              gap-2
+                              rounded-[8px]
+                              border
+                              border-red-100
+                              bg-red-50
+                              px-3
+                              text-[8px]
+                              font-bold
+                              uppercase
+                              text-red-600
+                              transition
+                              hover:bg-red-100
+                              disabled:cursor-not-allowed
+                              disabled:opacity-35
+                            "
+                          >
+                            <Trash2
+                              size={12}
+                            />
+                            Delete
+                          </button>
+                        </div>
+
+                        <div
+                          className="
+                            grid
+                            grid-cols-1
+                            gap-4
+                            p-4
+                            md:grid-cols-2
+                          "
+                        >
+                          <TextInput
+                            label="Option Name"
+                            disabled={
+                              !form.packingEnabled
+                            }
+                            value={
+                              option.name
+                            }
+                            placeholder="Secure Packing"
+                            onChange={(
+                              value
+                            ) =>
+                              updatePackingOption(
+                                option._clientId,
+                                "name",
+                                value
+                              )
+                            }
+                          />
+
+                          <TextInput
+                            label="Stable Code"
+                            disabled={
+                              !form.packingEnabled
+                            }
+                            value={
+                              option.code
+                            }
+                            placeholder="secure"
+                            onChange={(
+                              value
+                            ) =>
+                              updatePackingOption(
+                                option._clientId,
+                                "code",
+                                normalizePackingCode(
+                                  value
+                                )
+                              )
+                            }
+                          />
+
+                          <TextInput
+                            label={`Price (${form.currencySymbol || form.currency || "PKR"})`}
+                            type="number"
+                            disabled={
+                              !form.packingEnabled
+                            }
+                            value={
+                              option.price
+                            }
+                            onChange={(
+                              value
+                            ) =>
+                              updatePackingOption(
+                                option._clientId,
+                                "price",
+                                value
+                              )
+                            }
+                          />
+
+                          <div
+                            className="
+                              flex
+                              min-h-[72px]
+                              items-center
+                              justify-between
+                              gap-4
+                              rounded-[12px]
+                              border
+                              border-[#e7e7e7]
+                              bg-[#fafafa]
+                              px-4
+                            "
+                          >
+                            <div>
+                              <div
+                                className="
+                                  text-[10px]
+                                  font-bold
+                                  text-[#333]
+                                "
+                              >
+                                Active Option
+                              </div>
+
+                              <div
+                                className="
+                                  mt-1
+                                  text-[9px]
+                                  text-[#999]
+                                "
+                              >
+                                Show this option at checkout.
+                              </div>
+                            </div>
+
+                            <Toggle
+                              disabled={
+                                !form.packingEnabled ||
+                                option.isDefault
+                              }
+                              checked={
+                                option.isActive
+                              }
+                              onChange={(
+                                value
+                              ) =>
+                                updatePackingOption(
+                                  option._clientId,
+                                  "isActive",
+                                  value
+                                )
+                              }
+                            />
+                          </div>
+
+                          <div
+                            className="
+                              md:col-span-2
+                            "
+                          >
+                            <FieldLabel>
+                              Description
+                            </FieldLabel>
+
+                            <textarea
+                              rows={3}
+                              disabled={
+                                !form.packingEnabled
+                              }
+                              value={
+                                option.description
+                              }
+                              placeholder="Explain what is included in this packing option."
+                              onChange={(
+                                event
+                              ) =>
+                                updatePackingOption(
+                                  option._clientId,
+                                  "description",
+                                  event.target.value
+                                )
+                              }
+                              className="
+                                w-full
+                                resize-none
+                                rounded-[10px]
+                                border
+                                border-[#dddddd]
+                                bg-white
+                                px-4
+                                py-3
+                                text-[11px]
+                                leading-6
+                                outline-none
+                                transition
+                                focus:border-[#6f9a37]
+                                disabled:cursor-not-allowed
+                                disabled:bg-[#f6f6f6]
+                                disabled:text-[#999]
+                              "
+                            />
+                          </div>
+
+                          <div
+                            className="
+                              flex
+                              flex-col
+                              gap-3
+                              rounded-[12px]
+                              border
+                              border-[#e7eedf]
+                              bg-[#f7faf3]
+                              p-4
+                              md:col-span-2
+                              md:flex-row
+                              md:items-center
+                              md:justify-between
+                            "
+                          >
+                            <div>
+                              <div
+                                className="
+                                  text-[10px]
+                                  font-black
+                                  text-[#4f7425]
+                                "
+                              >
+                                Default Packing
+                              </div>
+
+                              <p
+                                className="
+                                  mt-1
+                                  text-[9px]
+                                  leading-5
+                                  text-[#70805f]
+                                "
+                              >
+                                The default option will be preselected for the customer when checkout loads.
+                              </p>
+                            </div>
+
+                            {option.isDefault ? (
+                              <span
+                                className="
+                                  inline-flex
+                                  h-9
+                                  items-center
+                                  rounded-[9px]
+                                  bg-[#6f9a37]
+                                  px-4
+                                  text-[8px]
+                                  font-black
+                                  uppercase
+                                  text-white
+                                "
+                              >
+                                Current Default
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={
+                                  !form.packingEnabled ||
+                                  !option.isActive
+                                }
+                                onClick={() =>
+                                  setDefaultPackingOption(
+                                    option._clientId
+                                  )
+                                }
+                                className="
+                                  inline-flex
+                                  h-9
+                                  items-center
+                                  justify-center
+                                  rounded-[9px]
+                                  border
+                                  border-[#bfd49f]
+                                  bg-white
+                                  px-4
+                                  text-[8px]
+                                  font-black
+                                  uppercase
+                                  text-[#5f8730]
+                                  transition
+                                  hover:bg-[#eef6e5]
+                                  disabled:cursor-not-allowed
+                                  disabled:opacity-40
+                                "
+                              >
+                                Set as Default
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+
+              <div
+                className="
+                  mt-5
+                  rounded-[12px]
+                  border
+                  border-[#e7eedf]
+                  bg-[#f7faf3]
+                  p-4
+                "
+              >
+                <div
+                  className="
+                    flex
+                    items-start
+                    gap-3
+                  "
+                >
+                  <Package
+                    size={17}
+                    className="
+                      mt-0.5
+                      shrink-0
+                      text-[#6f9a37]
+                    "
+                  />
+
+                  <p
+                    className="
+                      text-[9px]
+                      leading-5
+                      text-[#666]
+                    "
+                  >
+                    Keep the code stable after orders begin using an option. You can safely change the customer-facing name, description and price later because each order stores its own packing snapshot.
+                  </p>
+                </div>
               </div>
             </Card>
           </div>
